@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>将棋ラボ — 戦略レッスンと評価付き対局</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Yuji+Mai&family=Yuji+Syuku&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --paper:#e7e9ec;--surface:#f7f8fa;--ink:#161c28;--muted:#5b6475;--line:#c6ccd6;--line-strong:#8f98a8;
+  --accent:#2448c4;--accent-soft:rgba(36,72,196,.14);--shu:#c0392b;
+  --g-best:#0f8a5f;--g-good:#2a6fd6;--g-norm:#7b8494;--g-dub:#c28100;--g-bad:#c2352b;
+  --sans:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  --serif:"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+  --wood:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='700' height='700'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.09 0.0035' numOctaves='3' seed='11'/><feColorMatrix values='0 0 0 0 0.42  0 0 0 0 0.25  0 0 0 0 0.05  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23f)'/></svg>");
+  --wood2:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='500' height='300'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.004 0.12' numOctaves='3' seed='4'/><feColorMatrix values='0 0 0 0 0.25  0 0 0 0 0.12  0 0 0 0 0.02  0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23f)'/></svg>");
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#11151c;--surface:#181d26;--ink:#e4e8ef;--muted:#8e97a8;--line:#2a3140;--line-strong:#465065;--accent:#7b97ff;--accent-soft:rgba(123,151,255,.18);}}
+:root[data-theme="dark"]{--paper:#11151c;--surface:#181d26;--ink:#e4e8ef;--muted:#8e97a8;--line:#2a3140;--line-strong:#465065;--accent:#7b97ff;--accent-soft:rgba(123,151,255,.18);}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.7}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--paper);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:10px clamp(14px,3vw,32px)}
+.logo{font-family:var(--serif);font-weight:800;font-size:22px;letter-spacing:.06em;display:flex;align-items:baseline;gap:10px;white-space:nowrap}
+.logo small{font-family:var(--sans);font-weight:500;font-size:12px;color:var(--muted);letter-spacing:0}
+.tabs{display:flex;margin-left:auto;border:1px solid var(--line-strong)}
+.tabs button{background:none;border:0;padding:7px 18px;font-weight:500;font-size:14px;white-space:nowrap}
+.tabs button+button{border-left:1px solid var(--line-strong)}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--paper)}
+.snd{background:none;border:1px solid var(--line-strong);width:36px;height:36px;display:flex;align-items:center;justify-content:center;padding:0}
+.snd svg{width:18px;height:18px}
+main{max-width:1200px;margin:0 auto;padding:22px clamp(12px,3vw,32px) 60px}
+.view[hidden]{display:none!important}
+.stage{display:grid;grid-template-columns:minmax(0,580px) minmax(0,1fr);gap:clamp(18px,3vw,40px);align-items:start}
+@media (max-width:900px){.stage{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);padding:20px 22px;min-width:0}
+.panel h2{font-family:var(--serif);font-weight:800;font-size:22px;line-height:1.35;margin:0 0 12px}
+.panel p{margin:0 0 .8em}.panel ul{margin:0 0 .8em;padding-left:1.2em}.panel li{margin:.25em 0}
+.seq{font-family:var(--serif);font-weight:600;background:var(--paper);padding:8px 12px;border-left:3px solid var(--accent)}
+table.vt{border-collapse:collapse;margin:4px 0 12px}table.vt td{border:1px solid var(--line);padding:4px 12px;text-align:center}
+table.vt td:nth-child(odd){font-family:var(--serif);font-weight:800}
+/* ===== board ===== */
+.bwrap{width:100%;max-width:580px;margin:0 auto;user-select:none;-webkit-user-select:none}
+.hand{display:flex;align-items:center;gap:8px;min-height:58px;padding:6px 10px;margin:6px 0;
+  background:var(--wood2),linear-gradient(180deg,#9b6a33,#7d5226);border-radius:3px;
+  box-shadow:inset 0 2px 6px rgba(0,0,0,.45),inset 0 -1px 0 rgba(255,255,255,.15),0 2px 4px rgba(0,0,0,.2)}
+.hand .who{font-size:12px;color:#f5e3c0;width:42px;flex:none;line-height:1.2;font-weight:700;text-shadow:0 1px 0 rgba(0,0,0,.5)}
+.hand .chips{display:flex;flex-wrap:wrap;gap:6px;min-height:46px;align-items:center}
+.hand .none{font-size:12px;color:rgba(245,227,192,.6)}
+.chip{position:relative;width:40px;height:46px;border:0;background:none;padding:0;transition:transform .15s}
+.chip .pc{width:100%;height:100%}
+.chip:not([tabindex="-1"]):hover{transform:translateY(-3px)}
+.chip .n{position:absolute;right:-6px;bottom:-4px;font-size:11px;font-weight:700;background:#1d140a;color:#f6e7c6;min-width:17px;height:17px;line-height:17px;text-align:center;border-radius:9px;box-shadow:0 1px 2px rgba(0,0,0,.5)}
+.chip.sel{transform:translateY(-6px) scale(1.06)}
+.chip.sel .pc{filter:drop-shadow(0 6px 5px rgba(0,0,0,.45)) drop-shadow(0 0 6px rgba(120,160,255,.9))}
+.files{position:absolute;left:3.4cqw;right:3.4cqw;top:0;height:3.4cqw;display:grid;grid-template-columns:repeat(9,1fr);font-size:2.2cqw;line-height:3.5cqw;color:#5a3a0e;text-align:center;font-family:var(--serif);font-weight:600}
+.ranks{position:absolute;right:0;top:3.4cqw;bottom:3.4cqw;width:3.4cqw;display:grid;grid-template-rows:repeat(9,1fr);font-size:2.2cqw;color:#5a3a0e;align-items:center;text-align:center;font-family:var(--serif);font-weight:600}
+.inner{padding:3.4cqw}
+.bin{position:relative;container-type:inline-size;
+  background:var(--wood),radial-gradient(120% 90% at 30% 20%,#f0cd85,#dcae5c 60%,#c99a48);
+  border-radius:2px;box-shadow:0 1px 0 #f6dca2 inset,0 0 0 1px #8b6122,0 7px 0 -1px #a57630,0 8px 0 0 #6e4a17,0 18px 28px rgba(0,0,0,.38)}
+.bin.shake{animation:shake .5s cubic-bezier(.36,.07,.19,.97)}
+@keyframes shake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
+.board{position:relative;display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);aspect-ratio:1/1.09;border:1.6px solid #2a1a06}
+.cell{position:relative;border-right:1px solid rgba(35,22,4,.78);border-bottom:1px solid rgba(35,22,4,.78);display:flex;align-items:center;justify-content:center;min-width:0;min-height:0;cursor:default}
+.cell:nth-child(9n){border-right:0}.cell:nth-child(n+73){border-bottom:0}
+.cell.star::after{content:"";position:absolute;width:6px;height:6px;background:#2a1a06;border-radius:50%;right:-3.5px;bottom:-3.5px;z-index:1}
+.cell.last{background:radial-gradient(circle,rgba(255,190,70,.55),rgba(255,170,40,.22))}
+.cell.mark{box-shadow:inset 0 0 0 2.5px var(--accent)}
+.cell.glow{animation:glow 1.6s ease-in-out infinite}
+@keyframes glow{50%{background:rgba(255,215,90,.55);box-shadow:inset 0 0 12px rgba(255,200,60,.9)}}
+.cell.selc{background:rgba(36,72,196,.22)}
+.cell.tgt{cursor:pointer}
+.cell.tgt::before{content:"";position:absolute;width:26%;height:24%;border-radius:50%;background:rgba(30,60,170,.55);box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+.cell.tgt.occ::before{width:92%;height:92%;border-radius:4px;background:transparent;box-shadow:inset 0 0 0 3px rgba(30,60,200,.8)}
+.cell.can{cursor:pointer}
+.pc{position:relative;width:calc(92% * var(--s,1));height:calc(95% * var(--s,1));display:block;filter:drop-shadow(1px 2.5px 1.5px rgba(40,20,0,.45));transition:transform .15s,filter .15s}
+.pc svg{display:block;width:100%;height:100%;overflow:visible}
+.pc.gote{transform:rotate(180deg);filter:drop-shadow(-1px -2.5px 1.5px rgba(40,20,0,.45))}
+.cell.can:hover .pc:not(.gote),.cell.selc .pc:not(.gote){transform:translateY(-5%) scale(1.05);filter:drop-shadow(2px 7px 4px rgba(40,20,0,.45))}
+.cell.selc .pc:not(.gote){transform:translateY(-9%) scale(1.09)}
+svg.arrows{position:absolute;left:3.4cqw;top:3.4cqw;width:calc(100% - 6.8cqw);height:calc(100% - 6.8cqw);pointer-events:none;overflow:visible;z-index:6}
+.fx{position:absolute;inset:0;pointer-events:none;z-index:8;overflow:visible}
+.stamp{position:absolute;left:50%;top:50%;font-family:var(--serif);font-weight:800;font-size:15cqw;color:#c0261a;white-space:nowrap;
+  -webkit-text-stroke:1.5px #fff6e0;text-shadow:0 4px 0 rgba(0,0,0,.25),0 0 30px rgba(255,80,40,.6);animation:stamp 1.25s cubic-bezier(.2,1.3,.35,1) forwards}
+.stamp.mate{font-size:22cqw;animation-duration:2s}
+.stamp.ok{color:#0e7a55;text-shadow:0 4px 0 rgba(0,0,0,.2),0 0 30px rgba(60,220,150,.6)}
+@keyframes stamp{0%{opacity:0;transform:translate(-50%,-50%) scale(2.4) rotate(-12deg)}18%{opacity:1;transform:translate(-50%,-50%) scale(.94) rotate(-4deg)}28%{transform:translate(-50%,-50%) scale(1.02) rotate(-4deg)}75%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1) rotate(-4deg)}}
+.vign{position:absolute;inset:0;background:radial-gradient(circle,transparent 30%,rgba(190,20,10,.45));animation:vign 1.1s ease-out forwards}
+@keyframes vign{0%{opacity:0}20%{opacity:1}100%{opacity:0}}
+.ripple{position:absolute;border:2px solid rgba(255,240,200,.95);border-radius:50%;pointer-events:none;animation:ripple .5s ease-out forwards}
+@keyframes ripple{0%{transform:translate(-50%,-50%) scale(.3);opacity:1}100%{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
+.part{position:absolute;width:9px;height:9px;pointer-events:none}
+.ghost{position:fixed;z-index:50;pointer-events:none}
+.promo{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;background:rgba(10,14,22,.5);z-index:12;backdrop-filter:blur(1.5px)}
+.promo[hidden]{display:none}
+.promo button{background:var(--surface);border:1px solid var(--line-strong);padding:10px 16px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:6px;box-shadow:0 8px 20px rgba(0,0,0,.35);animation:pop .2s ease-out}
+.promo button .pc{width:46px;height:52px}
+@keyframes pop{0%{transform:scale(.8);opacity:0}100%{transform:none;opacity:1}}
+/* ===== index ===== */
+.intro{display:grid;grid-template-columns:1.1fr 1fr;gap:32px;align-items:end;margin:8px 0 26px}
+.intro h1{font-family:var(--serif);font-weight:800;font-size:clamp(30px,5vw,50px);line-height:1.15;margin:0;letter-spacing:.02em}
+.intro p{margin:0;color:var(--muted);max-width:38em}
+.heropcs{display:flex;gap:10px;margin-top:18px}
+.heropcs .pc{width:46px;height:52px;animation:drop .7s cubic-bezier(.3,1.5,.5,1) backwards}
+.heropcs .pc:nth-child(2){animation-delay:.12s}.heropcs .pc:nth-child(3){animation-delay:.24s}.heropcs .pc:nth-child(4){animation-delay:.36s}
+@keyframes drop{0%{transform:translateY(-40px) rotate(-10deg);opacity:0}100%{transform:none;opacity:1}}
+@media (max-width:700px){.intro{grid-template-columns:1fr;gap:10px}}
+.chapters{list-style:none;margin:0;padding:0;border-top:1px solid var(--line-strong)}
+.chapters li{border-bottom:1px solid var(--line)}
+.chapters .no{font-family:var(--serif);font-weight:800;font-size:34px;color:var(--line-strong);line-height:1}
+.chapters .ti{font-weight:700;font-size:17px;display:block}
+.chapters .su{color:var(--muted);font-size:13px}
+.chapters .pr{font-size:12px;color:var(--muted);text-align:right;min-width:90px}
+.chapters .bar{display:block;height:3px;background:var(--line);margin-top:5px}
+.chapters .bar i{display:block;height:100%;background:var(--accent)}
+.chapters .done .no{color:var(--accent)}
+.chapters .new{font-size:11px;font-weight:700;color:#fff;background:var(--shu);padding:0 6px;margin-left:8px;vertical-align:2px}
+/* ===== lesson ===== */
+.crumb{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:13px;color:var(--muted)}
+.crumb button{background:none;border:1px solid var(--line-strong);padding:3px 12px}
+.steps{display:flex;gap:3px;margin:0 0 14px}
+.steps i{flex:1;height:4px;background:var(--line)}.steps i.cur{background:var(--ink)}.steps i.ok{background:var(--accent)}
+.quiz{border-top:1px solid var(--line);margin-top:14px;padding-top:14px}
+.qtag{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;background:var(--ink);color:var(--paper);margin-bottom:8px}
+.qtag.nx{background:var(--shu)}
+.fb{margin-top:12px;padding:12px 14px;border-left:3px solid var(--line-strong);background:var(--paper);animation:fbin .3s ease-out}
+@keyframes fbin{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:none}}
+.fb.ok{border-color:var(--g-best)}.fb.ng{border-color:var(--g-bad)}
+.fb b.h{display:block;font-family:var(--serif);font-size:18px;margin-bottom:4px}
+.fb.ok b.h{color:var(--g-best)}.fb.ng b.h{color:var(--g-bad)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{border:1px solid var(--line-strong);background:var(--surface);padding:7px 16px;font-weight:500;font-size:14px;transition:border-color .15s,transform .1s}
+.btn:hover{border-color:var(--ink)}.btn:active{transform:translateY(1px)}
+.btn.pri{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn:disabled{opacity:.4;cursor:default}
+.nav{display:flex;justify-content:space-between;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.bstep{margin:14px 0 8px;padding:14px 16px;background:var(--paper);border-left:4px solid var(--accent)}
+.bstep .k{font-size:12px;color:var(--muted)}
+.bstep .ins{font-family:var(--serif);font-weight:800;font-size:20px;line-height:1.4;display:block}
+.bstep .why{font-size:13px;color:var(--muted)}
+.bstep.anim{animation:fbin .3s ease-out}
+.blist{list-style:none;margin:8px 0 0;padding:0;font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:2px 12px}
+.blist li{display:flex;gap:6px;align-items:baseline;color:var(--muted)}
+.blist li.d{color:var(--ink)}.blist li.d::before{content:"";width:8px;height:8px;background:var(--accent);flex:none;transform:translateY(-1px)}
+.blist li:not(.d)::before{content:"";width:8px;height:8px;border:1px solid var(--line-strong);flex:none;transform:translateY(-1px)}
+.blist li.c{color:var(--accent);font-weight:700}
+.tog{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer}
+.tog input{accent-color:var(--accent)}
+/* ===== play ===== */
+.seg{display:flex;border:1px solid var(--line-strong);margin:6px 0 14px}
+.seg button{flex:1;background:none;border:0;padding:8px 4px;font-size:14px;white-space:nowrap}
+.seg button+button{border-left:1px solid var(--line-strong)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.lbl{font-size:13px;color:var(--muted);font-weight:500}
+.lvdesc{font-size:12px;color:var(--muted);margin:-8px 0 14px}
+.evalbar{position:relative;height:12px;background:#2b2f38;margin:4px 0 6px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.5)}
+.evalbar i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(#fffdf6,#e9e3d3);transition:width .7s cubic-bezier(.3,1.2,.4,1)}
+.evalbar::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--accent)}
+.evaltxt{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.evaltxt b{color:var(--ink);font-size:16px}
+.grade{position:relative;overflow:hidden;margin:16px 0 10px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;min-height:78px;padding:12px 14px;background:var(--paper);border-left:4px solid var(--g-norm)}
+.grade .gw{font-family:var(--serif);font-weight:800;font-size:32px;line-height:1;grid-row:span 2}
+.grade .gm{font-weight:700}.grade .gd{font-size:13px;color:var(--muted)}
+.grade.anim .gw{animation:gstamp .5s cubic-bezier(.2,1.5,.4,1)}
+@keyframes gstamp{0%{transform:scale(2.2) rotate(-10deg);opacity:0}100%{transform:none;opacity:1}}
+.grade.anim.best::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 30%,rgba(255,230,140,.55) 50%,transparent 70%);animation:shine 1.1s ease-out .2s backwards;transform:translateX(-100%)}
+@keyframes shine{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.grade.anim.bad,.grade.anim.dub{animation:shake .45s .15s}
+.grade.empty{border-left-color:var(--line);color:var(--muted);display:flex;font-size:14px}
+.status{font-size:13px;color:var(--muted);min-height:1.7em;display:flex;align-items:center;gap:8px}
+.dots{display:inline-flex;gap:4px}.dots i{width:6px;height:6px;background:var(--accent);animation:dot 1s infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,100%{opacity:.2;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+.kifu{max-height:240px;overflow-y:auto;border-top:1px solid var(--line);margin-top:12px;font-size:14px}
+.kifu button{display:grid;grid-template-columns:34px 1fr auto;gap:8px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
+.kifu button:hover,.kifu button.on{background:var(--accent-soft)}
+.kifu .k{color:var(--muted);font-size:12px}
+.tag{font-size:12px;font-weight:700;padding:0 6px;color:#fff}
+.graph{width:100%;height:70px;display:block;margin-top:10px;border-top:1px solid var(--line)}
+.summary{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:10px 0;text-align:center}
+.summary div{background:var(--paper);padding:6px 2px}
+.summary b{display:block;font-family:var(--serif);font-size:22px;line-height:1.2}
+.summary span{font-size:12px}
+.result{font-family:var(--serif);font-weight:800;font-size:26px;margin:4px 0;animation:gstamp .6s cubic-bezier(.2,1.5,.4,1)}
+.note{font-size:12px;color:var(--muted);margin-top:14px}
+/* next-move list */
+.nlhead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--line-strong);padding-bottom:12px}
+.nlhead h2{font-family:var(--serif);font-weight:800;font-size:28px;margin:0;line-height:1.2}
+.nlhead p{margin:4px 0 0}
+.nlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.ncard{display:grid;grid-template-columns:104px 1fr;gap:14px;align-items:start;text-align:left;background:var(--surface);border:1px solid var(--line);padding:12px;transition:border-color .15s,transform .15s,box-shadow .15s}
+.ncard:hover{border-color:var(--ink);transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.12)}
+.ncard svg{width:104px;height:auto;display:block;box-shadow:0 2px 0 #8b6122,0 4px 8px rgba(0,0,0,.25)}
+.ncard .nno{font-family:var(--serif);font-weight:800;font-size:13px;color:var(--muted)}
+.ncard .nt{display:block;font-weight:700;font-size:15px;line-height:1.4;margin:2px 0 6px}
+.ncard .nq{display:block;font-size:12px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ncard .ns{display:inline-block;margin-top:8px;font-size:12px;font-weight:700;padding:1px 8px;border:1px solid var(--line-strong);color:var(--muted)}
+.ncard.solved .ns{background:var(--g-best);border-color:var(--g-best);color:#fff}
+.ncard.solved{border-left:4px solid var(--g-best)}
+.rst{display:flex;gap:8px;align-items:center;font-size:13px}
+.btn.danger{border-color:var(--g-bad);color:var(--g-bad)}.btn.danger.pri{background:var(--g-bad);color:#fff}
+/* account */
+.acct{display:flex;align-items:center;gap:6px;height:36px;padding:0 12px;border:1px solid var(--line-strong);background:none;font-size:13px;white-space:nowrap}
+.acct[hidden]{display:none}
+.acct .dot{width:8px;height:8px;border-radius:50%;background:var(--g-norm)}
+.acct.synced .dot{background:var(--g-best)}.acct.syncing .dot{background:var(--g-dub);animation:blink 1s infinite}.acct.error .dot{background:var(--g-bad)}
+.acctbox{position:fixed;inset:0;z-index:60;background:rgba(10,14,22,.5);display:flex;align-items:flex-start;justify-content:center;padding:80px 16px}
+.acctbox[hidden]{display:none}
+.acctin{background:var(--surface);border:1px solid var(--line-strong);width:min(460px,100%);padding:20px 22px;box-shadow:0 20px 50px rgba(0,0,0,.35);animation:pop .2s ease-out}
+.acctin h3{font-family:var(--serif);font-size:20px;margin:0 0 8px}.acctin p{margin:0 0 8px}
+.aform{display:flex;gap:8px;margin:10px 0}.aform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border:1px solid var(--line-strong);background:var(--paper);color:var(--ink)}
+@media (max-width:600px){.acct .al{display:none}.acct{padding:0 10px}}
+/* accordion */
+.chapters li>.chh{width:100%;display:grid;grid-template-columns:64px 1fr auto 20px;gap:16px;align-items:center;padding:16px 4px;background:none;border:0;text-align:left;transition:background .15s}
+.chapters li>.chh:hover{background:var(--surface)}
+.chev{width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translate(-2px,-2px);transition:transform .25s}
+.chapters li.open .chev{transform:rotate(225deg) translate(-2px,-2px)}
+.accb{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s ease}
+.chapters li.open .accb{grid-template-rows:1fr}
+.accin{overflow:hidden;padding:0 4px 0 84px;visibility:hidden;transition:visibility .3s}
+.chapters li.open .accin{visibility:visible}
+.chapters li.open .accin{padding-bottom:14px}
+@media (max-width:600px){.accin{padding-left:8px}.chapters li>.chh{grid-template-columns:44px 1fr auto 14px;gap:10px}}
+.plist{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.plist li{border-bottom:1px solid var(--line)}
+.plist button{width:100%;display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center;background:none;border:0;padding:7px 6px;text-align:left;font-size:14px}
+.plist button:hover{background:var(--surface)}
+.pk{font-size:11px;color:var(--muted);border:1px solid var(--line-strong);text-align:center;padding:0 4px}
+.ps{font-size:12px;color:var(--muted);white-space:nowrap}.ps.ok{color:var(--g-best);font-weight:700}
+.star{color:#c98a00;font-size:12px;letter-spacing:-1px}
+.fl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 8px}
+.chip2{border:1px solid var(--line-strong);background:var(--surface);padding:3px 12px;font-size:13px}
+.chip2.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.stepn{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:4px}
+/* big fx */
+.gflash{position:absolute;inset:-4%;background:radial-gradient(circle at var(--x) var(--y),rgba(255,225,120,.85),rgba(255,200,60,.25) 35%,transparent 65%);animation:gfl 1.3s ease-out forwards;mix-blend-mode:screen}
+@keyframes gfl{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
+.rays{position:absolute;width:160cqw;height:160cqw;border-radius:50%;transform:translate(-50%,-50%);background:repeating-conic-gradient(rgba(255,214,90,.55) 0 7deg,transparent 7deg 18deg);
+  -webkit-mask:radial-gradient(circle,#000 4%,transparent 45%);mask:radial-gradient(circle,#000 4%,transparent 45%);animation:rays 1.6s ease-out forwards}
+@keyframes rays{0%{opacity:0;transform:translate(-50%,-50%) scale(.2) rotate(0)}20%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1) rotate(60deg)}}
+.shock{position:absolute;border:4px solid rgba(255,214,90,.95);border-radius:50%;transform:translate(-50%,-50%);animation:shock .9s ease-out forwards;box-shadow:0 0 18px rgba(255,200,60,.8)}
+@keyframes shock{0%{width:0;height:0;opacity:1}100%{width:90cqw;height:90cqw;opacity:0}}
+.stamp.gold{color:#c98a00;-webkit-text-stroke:2px #fff7d6;text-shadow:0 4px 0 rgba(120,70,0,.35),0 0 40px rgba(255,200,60,.95);font-size:17cqw}
+.stamp.badst{color:#2a0a08;-webkit-text-stroke:2px #e8452f;text-shadow:0 6px 0 rgba(0,0,0,.3),0 0 30px rgba(200,20,10,.7);font-size:17cqw;animation:stampbad 1.6s cubic-bezier(.3,1.6,.4,1) forwards}
+@keyframes stampbad{0%{opacity:0;transform:translate(-50%,-140%) scale(1.2) rotate(6deg)}22%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(3deg)}30%{transform:translate(-50%,-46%) rotate(3deg)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) rotate(3deg)}}
+.bflash{position:absolute;inset:0;background:radial-gradient(circle at var(--x) var(--y),rgba(140,0,0,.15),rgba(20,0,0,.55));animation:bfl 1.4s ease-out forwards}
+@keyframes bfl{0%{opacity:0}10%{opacity:1}100%{opacity:0}}
+.bin.desat .inner{animation:desat 1.4s ease-out}
+@keyframes desat{0%,100%{filter:none}15%{filter:grayscale(.85) brightness(.75)}}
+svg.crack{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+svg.crack path{fill:none;stroke:#1a0904;stroke-width:2.2;stroke-linecap:round;stroke-dasharray:var(--l);stroke-dashoffset:var(--l);animation:crack .35s ease-out forwards,crackfade 1.6s ease-in forwards}
+@keyframes crack{to{stroke-dashoffset:0}}
+@keyframes crackfade{0%,60%{opacity:.9}100%{opacity:0}}
+/* analysis */
+.ana{margin-top:14px;border-top:1px solid var(--line);padding-top:12px;animation:fbin .3s ease-out}
+.ana.still{animation:none}
+.anh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.anh b{font-family:var(--serif);font-size:17px}
+.anbar{font-size:13px;color:var(--muted)}.anbar b{color:var(--ink);font-size:16px}
+.arows{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.arow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;background:var(--paper);border:1px solid transparent;padding:7px 10px}
+.arow:hover{border-color:var(--line-strong)}.arow.on{border-color:var(--accent);background:var(--accent-soft)}
+.ar1{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.am{font-weight:700;font-family:var(--serif);font-size:15px}
+.ae{font-weight:700;text-align:right;white-space:nowrap}.ae small{display:block;font-size:11px;font-weight:500}
+.apv{grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5}
+.atag{font-size:11px;font-weight:700;padding:0 6px;color:#fff}.atag.ok{background:var(--g-best)}.atag.tr{background:var(--g-dub)}
+.krow{display:grid;grid-template-columns:34px 1fr auto;gap:8px;border-bottom:1px solid var(--line);padding:4px 6px}
+/* threat */
+.cell.threat{background:radial-gradient(circle,rgba(220,40,20,.38),rgba(220,40,20,.08) 70%)}
+.cell.threat .pc{animation:thr 1.1s ease-in-out infinite}
+.cell.threat .pc.gote{animation-name:thrg}
+@keyframes thr{50%{filter:drop-shadow(0 0 6px rgba(255,40,20,.95)) drop-shadow(1px 2.5px 1.5px rgba(40,20,0,.45))}}
+@keyframes thrg{50%{filter:drop-shadow(0 0 6px rgba(255,40,20,.95))}}
+.ttag{position:absolute;left:50%;top:-22%;transform:translateX(-50%);z-index:7;background:#c0261a;color:#fff;font-size:max(10px,2cqw);font-weight:700;padding:0 5px;line-height:1.5;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,.35);pointer-events:none}
+.ttag::after{content:"";position:absolute;left:50%;bottom:-4px;margin-left:-4px;border:4px solid transparent;border-bottom:0;border-top-color:#c0261a}
+.stamp.warn{color:#d9480f;font-size:13cqw}
+.kst{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0 0}
+.kst div{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;background:var(--paper);font-size:13px}
+.kst b{font-size:12px;padding:1px 8px;color:#fff;background:var(--g-norm)}
+.kst b.chk,.kst b.th{background:#c0261a;animation:blink 1.2s infinite}.kst b.win{background:var(--g-best);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.55}}
+.tagth{font-size:11px;font-weight:700;color:#c0261a;border:1px solid #c0261a;padding:0 4px;margin-left:6px}
+/* graph */
+.gwrap{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.gwrap .gh{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--muted)}
+.gwrap .gh b{font-family:var(--serif);color:var(--ink);font-size:15px}
+.egraph{width:100%;height:auto;display:block;margin-top:4px}
+.egraph .hit{fill:transparent;cursor:pointer}
+.egraph .hit:hover{fill:rgba(36,72,196,.12)}
+.egraph text{font-size:9px;fill:var(--muted);font-family:var(--sans)}
+.egraph .ln{stroke-dasharray:var(--len);stroke-dashoffset:0}
+.gtip{font-size:12px;color:var(--muted);min-height:1.5em;margin-top:2px}
+@media (max-width:600px){.logo small{display:none}.tabs button{padding:6px 12px}main{padding-top:12px}.panel{padding:16px}.stage{gap:14px}.blist{grid-template-columns:1fr}.seg button{font-size:13px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<linearGradient id="pw" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fcedc4"/><stop offset=".55" stop-color="#efcf8f"/><stop offset="1" stop-color="#d9ac63"/></linearGradient>
+<linearGradient id="pe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b98a45"/><stop offset="1" stop-color="#8a5f25"/></linearGradient>
+<pattern id="pg" width="11" height="110" patternUnits="userSpaceOnUse"><path d="M2 0Q3.5 55 2 110" stroke="#9a6a28" stroke-opacity=".22" stroke-width="1" fill="none"/><path d="M7 0Q5.8 40 7.2 110" stroke="#9a6a28" stroke-opacity=".12" stroke-width="1.6" fill="none"/></pattern>
+</defs></svg>
+<header class="top"><div class="logo">将棋ラボ<small>戦略レッスンと評価付き対局</small></div>
+<nav class="tabs" role="tablist"><button data-tab="lesson" role="tab" aria-selected="true">レッスン</button><button data-tab="play" role="tab" aria-selected="false">実戦</button></nav>
+<button class="acct local" id="acct" hidden></button><button class="snd" id="snd" aria-label="駒音の切り替え"></button></header>
+<div class="acctbox" id="acctBox" hidden><div class="acctin" id="acctIn" role="dialog" aria-modal="true"></div></div>
+<main>
+<section id="v-index" class="view">
+  <div class="intro"><div><h1>駒の動かし方の、<br>その先へ。</h1><div class="heropcs" id="heropcs"></div></div><p>囲い、攻めの組み立て、手筋、寄せ。勝つための考え方を10章で順に学ぶ。問題は盤上で実際に指して解き、囲いは自分の手で組み上げる。覚えたら「実戦」タブで、指し手ごとの採点つきでCPUと対局しよう。</p></div>
+  <ol class="chapters" id="chapters"></ol>
+</section>
+<section id="v-list" class="view" hidden>
+  <div class="crumb"><button id="listBack">目次</button><span id="listCrumb"></span></div>
+  <div class="nlhead"><div><h2 id="listTitle"></h2><p class="lbl" id="listProg"></p></div><div id="listReset"></div></div>
+  <div id="listFilter"></div>
+  <div class="nlist" id="nlist"></div><div class="row" id="listMore" style="justify-content:center"></div>
+</section>
+<section id="v-lesson" class="view" hidden>
+  <div class="crumb"><button id="toIndex">目次</button><span id="crumbTxt"></span></div>
+  <div class="stage"><div id="lessonBoard"></div><div class="panel" id="lessonPanel"></div></div>
+</section>
+<section id="v-play" class="view" hidden>
+  <div class="stage"><div id="playBoard"></div><div class="panel" id="playPanel"></div></div>
+</section>
+</main>
+<script>
+// ===== Supabase 設定（GitHub Pages 公開用）=====
+// Supabase ダッシュボード → Project Settings → API の値を入れる。
+// anon key は公開前提の鍵。データは Row Level Security で本人の行だけに制限している。
+// 空のままなら従来どおり localStorage のみで動く。
+const SUPABASE_URL='';
+const SUPABASE_ANON_KEY='';
+function ENGINE(){
+const GOLD=[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[0,1]];
+const STEPS={1:[[0,-1]],3:[[-1,-2],[1,-2]],4:[[-1,-1],[0,-1],[1,-1],[-1,1],[1,1]],5:GOLD,
+ 8:[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]],9:GOLD,10:GOLD,11:GOLD,12:GOLD,
+ 14:[[0,-1],[-1,0],[1,0],[0,1]],15:[[-1,-1],[1,-1],[-1,1],[1,1]]};
+const SLIDES={2:[[0,-1]],6:[[-1,-1],[1,-1],[-1,1],[1,1]],7:[[0,-1],[-1,0],[1,0],[0,1]],
+ 14:[[-1,-1],[1,-1],[-1,1],[1,1]],15:[[0,-1],[-1,0],[1,0],[0,1]]};
+const canPromote=t=>t>=1&&t<=7&&t!==5;
+const base=t=>t>8?t-8:t;
+const SF={p:1,l:2,n:3,s:4,g:5,b:6,r:7,k:8};
+const SFR=['','p','l','n','s','g','b','r','k'];
+// zobrist
+let seed=0x9E3779B9;const rnd=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return seed>>>0;};
+const ZB=new Uint32Array(31*81*2);for(let i=0;i<ZB.length;i++)ZB[i]=rnd();
+const ZH=new Uint32Array(2*9*20*2);for(let i=0;i<ZH.length;i++)ZH[i]=rnd();
+const ZS0=rnd(),ZS1=rnd();
+const zb=(v,sq)=>((v+15)*81+sq)*2;const zh=(s,t,n)=>((s*9+t)*20+n)*2;
+function rehash(p){let a=0,b=0;for(let i=0;i<81;i++)if(p.b[i]){const k=zb(p.b[i],i);a^=ZB[k];b^=ZB[k+1];}
+  for(let s=0;s<2;s++)for(let t=1;t<9;t++){const k=zh(s,t,p.h[s][t]);a^=ZH[k];b^=ZH[k+1];}
+  if(p.side){a^=ZS0;b^=ZS1;}p.k1=a>>>0;p.k2=b>>>0;}
+function newPos(){return {b:new Int8Array(81),h:[new Int8Array(9),new Int8Array(9)],side:0,k1:0,k2:0};}
+function clonePos(p){return {b:new Int8Array(p.b),h:[new Int8Array(p.h[0]),new Int8Array(p.h[1])],side:p.side,k1:p.k1,k2:p.k2};}
+function parseSfen(s){
+  const p=newPos();const [bd,sd,hd]=s.trim().split(/\s+/);const rows=bd.split('/');
+  for(let y=0;y<9;y++){let x=0,pr=false;for(const c of rows[y]){
+    if(c==='+'){pr=true;continue}if(/\d/.test(c)){x+=+c;continue}
+    const lc=c.toLowerCase();let t=SF[lc];if(pr)t+=8;pr=false;p.b[y*9+x]=c===lc?-t:t;x++;}}
+  p.side=sd==='w'?1:0;
+  if(hd&&hd!=='-'){let n=0;for(const c of hd){if(/\d/.test(c)){n=n*10+ +c;continue}
+    const lc=c.toLowerCase();p.h[c===lc?1:0][SF[lc]]+=(n||1);n=0;}}
+  rehash(p);return p;}
+function toSfen(p){let rows=[];for(let y=0;y<9;y++){let r='',e=0;for(let x=0;x<9;x++){const v=p.b[y*9+x];
+  if(!v){e++;continue}if(e){r+=e;e=0}const t=Math.abs(v);let c=SFR[base(t)];if(t>8)c='+'+c;r+=v>0?c.toUpperCase():c;}
+  if(e)r+=e;rows.push(r)}
+  let h='';for(const s of [0,1])for(const t of [7,6,5,4,3,2,1]){const n=p.h[s][t];if(n){h+=(n>1?n:'')+(s===0?SFR[t].toUpperCase():SFR[t])}}
+  return rows.join('/')+' '+(p.side?'w':'b')+' '+(h||'-')+' 1';}
+function addMove(ms,s,t,i,j,fy,ty,w){
+  const inZone=s===0?(fy<=2||ty<=2):(fy>=6||ty>=6);const lr=s===0?ty:8-ty;
+  if(canPromote(t)&&inZone){ms.push({from:i,to:j,promo:true,pc:t,cap:w,drop:0});
+    const must=((t===1||t===2)&&lr===0)||(t===3&&lr<=1);
+    if(!must)ms.push({from:i,to:j,promo:false,pc:t,cap:w,drop:0});}
+  else ms.push({from:i,to:j,promo:false,pc:t,cap:w,drop:0});}
+function gen(p,capsOnly){
+  const ms=[],s=p.side,sg=s===0?1:-1,b=p.b;
+  for(let i=0;i<81;i++){const v=b[i];if(!v||(v>0)!==(s===0))continue;const t=sg*v,x=i%9,y=(i/9)|0;
+    const st=STEPS[t];if(st)for(const d of st){const nx=x+d[0],ny=y+(s===0?d[1]:-d[1]);
+      if(nx<0||nx>8||ny<0||ny>8)continue;const j=ny*9+nx,w=b[j];if(w&&(w>0)===(s===0))continue;
+      if(capsOnly&&!w)continue;addMove(ms,s,t,i,j,y,ny,w);}
+    const sl=SLIDES[t];if(sl)for(const d of sl){const dx=d[0],dy=s===0?d[1]:-d[1];let nx=x+dx,ny=y+dy;
+      while(nx>=0&&nx<=8&&ny>=0&&ny<=8){const j=ny*9+nx,w=b[j];if(w&&(w>0)===(s===0))break;
+        if(!capsOnly||w)addMove(ms,s,t,i,j,y,ny,w);if(w)break;nx+=dx;ny+=dy;}}}
+  if(capsOnly)return ms;
+  const hd=p.h[s];let any=false;for(let t=1;t<8;t++)if(hd[t])any=true;
+  if(any){const pf=new Array(9).fill(false);if(hd[1])for(let i=0;i<81;i++)if(b[i]===sg)pf[i%9]=true;
+    for(let t=7;t>=1;t--){if(!hd[t])continue;for(let j=0;j<81;j++){if(b[j])continue;const y=(j/9)|0,lr=s===0?y:8-y;
+      if((t===1||t===2)&&lr===0)continue;if(t===3&&lr<=1)continue;if(t===1&&pf[j%9])continue;
+      ms.push({from:-1,to:j,drop:t,promo:false,pc:t,cap:0});}}}
+  return ms;}
+function hx(p,k){p.k1=(p.k1^ZB[k])>>>0;p.k2=(p.k2^ZB[k+1])>>>0;}
+function hh(p,s,t,n){const k=zh(s,t,n);p.k1=(p.k1^ZH[k])>>>0;p.k2=(p.k2^ZH[k+1])>>>0;}
+function make(p,m){const s=p.side,sg=s===0?1:-1;
+  if(m.from<0){const v=sg*m.drop;p.b[m.to]=v;hx(p,zb(v,m.to));const n=p.h[s][m.drop];hh(p,s,m.drop,n);hh(p,s,m.drop,n-1);p.h[s][m.drop]=n-1;}
+  else{const v=p.b[m.from];hx(p,zb(v,m.from));p.b[m.from]=0;
+    if(m.cap){hx(p,zb(m.cap,m.to));const t=base(Math.abs(m.cap)),n=p.h[s][t];hh(p,s,t,n);hh(p,s,t,n+1);p.h[s][t]=n+1;}
+    const nv=m.promo?v+sg*8:v;p.b[m.to]=nv;hx(p,zb(nv,m.to));}
+  p.side^=1;p.k1=(p.k1^ZS0)>>>0;p.k2=(p.k2^ZS1)>>>0;}
+function unmake(p,m){p.side^=1;p.k1=(p.k1^ZS0)>>>0;p.k2=(p.k2^ZS1)>>>0;const s=p.side,sg=s===0?1:-1;
+  if(m.from<0){hx(p,zb(sg*m.drop,m.to));p.b[m.to]=0;const n=p.h[s][m.drop];hh(p,s,m.drop,n);hh(p,s,m.drop,n+1);p.h[s][m.drop]=n+1;}
+  else{const nv=p.b[m.to];hx(p,zb(nv,m.to));const v=m.promo?nv-sg*8:nv;p.b[m.from]=v;hx(p,zb(v,m.from));p.b[m.to]=m.cap;
+    if(m.cap){hx(p,zb(m.cap,m.to));const t=base(Math.abs(m.cap)),n=p.h[s][t];hh(p,s,t,n);hh(p,s,t,n-1);p.h[s][t]=n-1;}}}
+function attacks(p,i,tx,ty){const v=p.b[i];const s=v>0?0:1;const t=Math.abs(v);const x=i%9,y=(i/9)|0;
+  const dx=tx-x,dy=(ty-y)*(s===0?1:-1);
+  const st=STEPS[t];if(st)for(const d of st)if(d[0]===dx&&d[1]===dy)return true;
+  const sl=SLIDES[t];if(sl){const n=Math.max(Math.abs(dx),Math.abs(dy));if(n===0)return false;
+    if(dx!==0&&dy!==0&&Math.abs(dx)!==Math.abs(dy))return false;const ux=dx/n,uy=dy/n;
+    let ok=false;for(const d of sl)if(d[0]===ux&&d[1]===uy)ok=true;if(!ok)return false;
+    const rdy=s===0?uy:-uy;for(let k=1;k<n;k++){if(p.b[(y+rdy*k)*9+(x+ux*k)])return false;}return true;}
+  return false;}
+function attacked(p,sq,by){const tx=sq%9,ty=(sq/9)|0;for(let i=0;i<81;i++){const v=p.b[i];if(!v||(v>0)!==(by===0))continue;if(attacks(p,i,tx,ty))return true;}return false;}
+function kingSq(p,s){const k=s===0?8:-8;for(let i=0;i<81;i++)if(p.b[i]===k)return i;return -1;}
+function inCheck(p,s){const k=kingSq(p,s);return k>=0&&attacked(p,k,s^1);}
+function legalMoves(p,noUchi){const s=p.side,out=[];
+  for(const m of gen(p)){make(p,m);let ok=!inCheck(p,s);
+    if(ok&&!noUchi&&m.from<0&&m.drop===1){const k=kingSq(p,s^1);const front=m.to+(s===0?-9:9);
+      if(k===front&&legalMoves(p,true).length===0)ok=false;}
+    unmake(p,m);if(ok)out.push(m);}return out;}
+function isMate(p){return inCheck(p,p.side)&&legalMoves(p).length===0;}
+const ZD='０１２３４５６７８９',KD='〇一二三四五六七八九';
+const PN=['','歩','香','桂','銀','金','角','飛','玉','と','成香','成桂','成銀','','馬','龍'];
+const sqName=i=>ZD[9-i%9]+KD[((i/9)|0)+1];
+function moveJa(m,prevTo){const s=(prevTo===m.to?'同':sqName(m.to));
+  if(m.from<0)return s+PN[m.drop]+'打';
+  let n=s+PN[m.pc];if(m.promo)n+='成';else if(canPromote(m.pc)&&m.zoneOpt)n+='不成';return n;}
+function usi(m){const sq=i=>(9-i%9)+'abcdefghi'[(i/9)|0];
+  if(m.from<0)return 'PLNSGBR'[m.drop-1]+'*'+sq(m.to);return sq(m.from)+sq(m.to)+(m.promo?'+':'');}
+const enc=m=>((m.from+1)<<12)|(m.to<<4)|(m.promo?8:0)|m.drop;
+const VAL=[0,90,300,350,480,540,780,950,0,520,500,500,520,0,1050,1250];
+const HV=[0,105,330,385,530,590,880,1080,0];
+function evaluate(p){let sc=0;const b=p.b;
+  for(let s=0;s<2;s++){const sg=s===0?1:-1;for(let t=1;t<8;t++)sc+=sg*HV[t]*p.h[s][t];}
+  let k0=-1,k1=-1;for(let i=0;i<81;i++){if(b[i]===8)k0=i;else if(b[i]===-8)k1=i;}
+  const k0x=k0%9,k0y=(k0/9)|0,k1x=k1%9,k1y=(k1/9)|0;
+  for(let i=0;i<81;i++){const v=b[i];if(!v)continue;const t=Math.abs(v),sg=v>0?1:-1;sc+=sg*VAL[t];
+    const x=i%9,y=(i/9)|0;
+    if(t!==8&&t!==1){
+      const ox=sg>0?k0x:k1x,oy=sg>0?k0y:k1y,px=sg>0?k1x:k0x,py=sg>0?k1y:k0y;
+      if((sg>0?k0:k1)>=0&&(t===4||t===5||(t>=9&&t<=12))){const d=Math.max(Math.abs(ox-x),Math.abs(oy-y));if(d===1)sc+=sg*38;else if(d===2)sc+=sg*16;}
+      if((sg>0?k1:k0)>=0){const d=Math.max(Math.abs(px-x),Math.abs(py-y));if(d===1)sc+=sg*30;else if(d===2)sc+=sg*14;}}
+    if(t===6||t===7||t===14||t===15){let mob=0;for(const d of SLIDES[t]){let nx=x+d[0],ny=y+d[1];while(nx>=0&&nx<=8&&ny>=0&&ny<=8){mob++;if(b[ny*9+nx])break;nx+=d[0];ny+=d[1];}}sc+=sg*mob*4;}
+    if(t===1){const adv=sg>0?(6-y):(y-2);if(adv>0)sc+=sg*adv*3;}}
+  for(const [k,sg] of [[k0,1],[k1,-1]]){if(k<0)continue;const x=k%9,y=(k/9)|0;const rank=sg>0?y:8-y;
+    if(rank>=7&&(x<=2||x>=6))sc+=sg*45;if(x>=3&&x<=5)sc-=sg*12;if(rank<=5)sc-=sg*(6-rank)*25;}
+  return p.side===0?sc:-sc;}
+const MATE=30000;let nodes=0,deadline=Infinity,aborted=false;
+const TTN=1<<20,TM=TTN-1;const tk1=new Uint32Array(TTN),tk2=new Uint32Array(TTN),tsc=new Int32Array(TTN),tdp=new Int8Array(TTN),tfl=new Int8Array(TTN),tmv=new Int32Array(TTN);
+const killers=[];for(let i=0;i<64;i++)killers.push([0,0]);const hist=new Int32Array(2*83*81);
+function clearTT(){tk1.fill(0);tk2.fill(0);tdp.fill(0);hist.fill(0);}
+function mscore(m,ttm,ply,side){const e=enc(m);if(e===ttm)return 1e7;
+  if(m.cap)return Math.abs(m.cap)===8?2e7:1e6+VAL[Math.abs(m.cap)]*10-VAL[m.pc];if(m.promo)return 9e5;
+  const k=killers[ply];if(k&&(e===k[0]||e===k[1]))return 8e5;return hist[(side*83+m.from+1)*81+m.to];}
+function qs(p,a,bt,d){nodes++;const sp=evaluate(p);if(sp>=bt)return sp;if(sp>a)a=sp;if(d>6)return sp;
+  const ms=gen(p,true);for(const m of ms)if(Math.abs(m.cap)===8)return MATE;
+  ms.sort((x,y)=>(VAL[Math.abs(y.cap)]*10-VAL[y.pc])-(VAL[Math.abs(x.cap)]*10-VAL[x.pc]));
+  for(const m of ms){if(sp+VAL[Math.abs(m.cap)]+200<a)continue;make(p,m);const v=-qs(p,-bt,-a,d+1);unmake(p,m);if(v>=bt)return v;if(v>a)a=v;}
+  return a;}
+function ab(p,depth,a,bt,ply,nullOk){if((++nodes&1023)===0&&Date.now()>deadline)aborted=true;if(aborted)return 0;
+  if(depth<=0)return qs(p,a,bt,0);
+  const idx=p.k1&TM;let ttm=0;
+  if(tk1[idx]===p.k1&&tk2[idx]===p.k2){ttm=tmv[idx];if(tdp[idx]>=depth){let s=tsc[idx];if(s>MATE-1000)s-=ply;else if(s<-MATE+1000)s+=ply;
+    const f=tfl[idx];if(f===0)return s;if(f===1&&s>=bt)return s;if(f===2&&s<=a)return s;}}
+  const ms=gen(p);for(const m of ms)if(m.cap&&Math.abs(m.cap)===8)return MATE-ply;
+  if(nullOk&&depth>=3&&bt<MATE-1000){const o1=p.k1,o2=p.k2;p.side^=1;p.k1=(p.k1^ZS0)>>>0;p.k2=(p.k2^ZS1)>>>0;const v=-ab(p,depth-3,-bt,-bt+1,ply+1,false);p.side^=1;p.k1=o1;p.k2=o2;if(aborted)return 0;if(v>=bt)return v;}
+  const side=p.side;for(const m of ms)m.o=mscore(m,ttm,ply,side);ms.sort((x,y)=>y.o-x.o);
+  let best=-MATE*2,bm=0;const a0=a;let i=0;
+  for(const m of ms){make(p,m);let v;
+    if(i>=4&&depth>=3&&!m.cap&&!m.promo&&m.o<8e5){v=-ab(p,depth-2,-a-1,-a,ply+1,true);if(v>a&&!aborted)v=-ab(p,depth-1,-bt,-a,ply+1,true);}
+    else v=-ab(p,depth-1,-bt,-a,ply+1,true);
+    unmake(p,m);i++;if(aborted)return 0;
+    if(v>best){best=v;bm=enc(m);}if(v>a)a=v;
+    if(a>=bt){if(!m.cap){const k=killers[ply];if(k&&k[0]!==bm){k[1]=k[0];k[0]=bm;}hist[(side*83+m.from+1)*81+m.to]+=depth*depth;}break;}}
+  let s=best;if(s>MATE-1000)s+=ply;else if(s<-MATE+1000)s-=ply;
+  tk1[idx]=p.k1;tk2[idx]=p.k2;tsc[idx]=s;tdp[idx]=depth;tmv[idx]=bm;tfl[idx]=best<=a0?2:best>=bt?1:0;
+  return best;}
+function think(p,maxDepth,timeMs,noise){const root=legalMoves(p);if(!root.length)return {move:null,score:-MATE,depth:0};
+  deadline=timeMs?Date.now()+timeMs:Infinity;aborted=false;nodes=0;for(const k of killers){k[0]=k[1]=0;}
+  let best=root[0],bestSc=-MATE*2,reached=0;let order=root.slice();for(const m of order)m.o=mscore(m,0,0,p.side);order.sort((x,y)=>y.o-x.o);
+  for(let d=1;d<=maxDepth;d++){let a=-MATE*2,cb=null,cs=-MATE*2;const scored=[];
+    for(const m of order){make(p,m);let v;
+      if(scored.length&&d>=2){v=-ab(p,d-1,-a-1,-a,1,true);if(v>a&&!aborted)v=-ab(p,d-1,-MATE*2,-a,1,true);}
+      else v=-ab(p,d-1,-MATE*2,-a,1,true);
+      unmake(p,m);if(aborted)break;
+      const nv=noise?v+Math.round((Math.random()-.5)*noise):v;scored.push([m,nv]);if(nv>cs){cs=nv;cb=m;}if(v>a)a=v;}
+    if(aborted&&d>1){if(cb&&cs>bestSc&&scored.length>0&&scored[0][0]===best){} break;}
+    if(cb){best=cb;bestSc=cs;reached=d;}
+    scored.sort((x,y)=>y[1]-x[1]);const rest=order.filter(m=>!scored.some(s=>s[0]===m));order=scored.map(x=>x[0]).concat(rest);
+    if(Math.abs(bestSc)>=MATE-100)break;if(timeMs&&Date.now()>deadline-0)break;}
+  deadline=Infinity;return {move:best,score:bestSc,depth:reached,nodes};}
+function scorePos(p,depth,timeMs){if(legalMoves(p).length===0)return MATE;let last=null;const dl=timeMs?Date.now()+timeMs:Infinity;
+  for(let d=Math.min(depth,1);d<=depth;d++){deadline=dl;aborted=false;const v=-ab(p,d,-MATE*2,MATE*2,1,true);if(aborted&&last!==null)break;if(!aborted)last=v;if(last===null)last=v;}
+  deadline=Infinity;aborted=false;return last;}
+function evalAfter(p,m,depth){make(p,m);const v=scorePos(p,depth,800);unmake(p,m);return v;}
+function mateSearch(p,maxPly,timeMs){const dl=Date.now()+(timeMs||500);let to=false;
+  function rec(n){if(Date.now()>dl){to=true;return null;}
+    for(const m of gen(p)){make(p,m);
+      if(inCheck(p,p.side^1)||!inCheck(p,p.side)){unmake(p,m);continue;}
+      const ev=legalMoves(p);
+      if(ev.length===0){unmake(p,m);if(m.from<0&&m.drop===1)continue;return m;}
+      if(n>=3){let all=true;for(const r of ev){make(p,r);const x=rec(n-2);unmake(p,r);if(!x){all=false;break;}}if(all){unmake(p,m);return m;}}
+      unmake(p,m);if(to)return null;}
+    return null;}
+  for(let n=1;n<=maxPly;n+=2){const r=rec(n);if(r)return {move:r,ply:n};if(to)break;}
+  return {move:null,ply:0};}
+function threat(sfen,sw,ply,t){const s=sw?sfen.replace(/ ([bw]) /,(x,c)=>' '+(c==='b'?'w':'b')+' '):sfen;const p=parseSfen(s);
+  if(sw&&inCheck(p,p.side^1))return {u:null,check:true};if(inCheck(p,p.side^1))return {u:null};
+  const r=mateSearch(p,ply||5,t||450);return {u:r.move?usi(r.move):null,ply:r.ply};}
+function pvFrom(p,len){const out=[],st=[];for(let i=0;i<len;i++){const idx=p.k1&TM;if(!(tk1[idx]===p.k1&&tk2[idx]===p.k2))break;const ec=tmv[idx];if(!ec)break;
+    const m=legalMoves(p).find(x=>enc(x)===ec);if(!m)break;out.push(m);make(p,m);st.push(m);}
+  for(let i=st.length-1;i>=0;i--)unmake(p,st[i]);return out;}
+function jaLine(p,ms,prevTo){const st=[];const out=[];let pt=prevTo;for(const m of ms){m.zoneOpt=m.from>=0&&legalMoves(p).filter(x=>x.from===m.from&&x.to===m.to).length>1;
+    out.push((p.side===0?'▲':'△')+moveJa(m,pt));pt=m.to;make(p,m);st.push(m);}for(let i=st.length-1;i>=0;i--)unmake(p,st[i]);return out;}
+function analyze(sfen,timeMs,extra,k,prevTo){const p=parseSfen(sfen);const r=think(p,12,timeMs*.45,0);const D=Math.max(2,r.depth-1);
+  const ms=legalMoves(p);const quick=ms.map(m=>{make(p,m);deadline=Infinity;aborted=false;const v=-ab(p,1,-MATE*2,MATE*2,1,true);unmake(p,m);return [m,v];}).sort((a,b)=>b[1]-a[1]);
+  const pick=[];const add=u=>{const m=ms.find(x=>usi(x)===u);if(m&&!pick.includes(m))pick.push(m);};
+  if(r.move)add(usi(r.move));quick.slice(0,k||5).forEach(x=>add(usi(x[0])));(extra||[]).forEach(add);
+  const per=Math.max(120,timeMs*.55/pick.length);
+  const res=pick.map(m=>{make(p,m);const v=scorePos(p,D,per);const pv=pvFrom(p,5);unmake(p,m);return {u:usi(m),score:v,pv:jaLine(p,[m].concat(pv),prevTo),pvU:[m].concat(pv).map(usi)};});
+  res.sort((a,b)=>b.score-a.score);return {cands:res,depth:r.depth,side:p.side};}
+const BOOK=[['7g7f','2g2f','2f2e','6i7h','3i4h','5i6h','4i5h','3g3f'],['3c3d','8c8d','8d8e','4a3b','7a6b','3a4b','5a4b','7c7d']];
+const LV={1:{d:2,t:600,noise:260},2:{d:3,t:900,noise:70},3:{d:4,t:1500,noise:0},4:{d:7,t:3200,noise:0},5:{d:12,t:6500,noise:0}};
+function cpu(p,level,ply){const lv=LV[level];const r=think(p,lv.d,lv.t,lv.noise);let m=r.move;if(!m)return {move:null};
+  if(ply<12&&level<=4){const cands=BOOK[p.side].map(u=>legalMoves(p).find(x=>usi(x)===u)).filter(Boolean).filter(x=>evalAfter(p,x,2)>=r.score-(level>=4?25:60));
+    if(cands.length&&Math.random()<.85)m=cands[Math.floor(Math.random()*cands.length)];}
+  make(p,m);const ev=(m===r.move&&!lv.noise)?r.score:scorePos(p,3,600);unmake(p,m);
+  return {move:m,score:ev,depth:r.depth};}
+return {analyze,threat,mateSearch,parseSfen,toSfen,gen,legalMoves,make,unmake,isMate,inCheck,think,evalAfter,scorePos,usi,moveJa,evaluate,clonePos,sqName,cpu,clearTT,MATE,canPromote};
+}
+const INIT='lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1';
+const FUNA='4k4/9/9/9/9/2P4P1/PP1PPPP1P/1BKSGS1R1/LN1G3NL b - 1';
+const MINO='4k4/9/9/9/9/2P2P3/PPBPP1PPP/2SRG1SK1/LN3G1NL b - 1';
+const YAGURA='4k4/9/9/9/9/1PPP3P1/P1SGPPP1P/1KG2S1R1/LNB4NL b - 1';
+const ANA='4k4/9/9/9/9/2PP3P1/PPBSPPP1P/LSG4R1/KNG4NL b - 1';
+const BOGIN='lnsgkgsnl/1r5b1/p1pppp1pp/1p4p2/7P1/2P4S1/PP1PPPP1P/1B5R1/LNSGKG1NL b - 1';
+const P=(s)=>s;
+const LESSONS=[
+{id:'c1',title:'勝負の物差し',sum:'何を基準に「良い手」を選ぶのか',pages:[
+ {t:'将棋は玉の取り合い',sfen:INIT,marks:['5i','5a'],body:`<p>ゴールは相手の玉を<b>詰ます</b>こと。駒をたくさん取っても、先に自分の玉が詰まされたら負け。</p><p>形勢はおもに3つの物差しで測る。</p><ul><li><b>駒の損得</b>　どちらが価値の高い駒を多く持っているか</li><li><b>玉の堅さ</b>　自分の玉がどれだけ攻められにくいか</li><li><b>駒の働き</b>　駒が遊ばず、攻めや守りに参加しているか</li></ul><p>序盤〜中盤はこの3つのバランス、終盤は「どちらが先に詰ますか」のスピード勝負になる。</p>`},
+ {t:'駒の価値の目安',sfen:INIT,body:`<p>損得を考えるときの目安（流派で多少違う）。</p><table class="vt"><tr><td>歩</td><td>1</td><td>香</td><td>3</td><td>桂</td><td>4</td></tr><tr><td>銀</td><td>5</td><td>金</td><td>6</td><td>角</td><td>8</td></tr><tr><td>飛</td><td>10</td><td>馬</td><td>12</td><td>龍</td><td>14</td></tr></table><p><b>と金</b>は金と同じ動きなのに、取られても相手の持ち駒は歩1枚。だから「安い金」としてとても優秀。</p><p>持ち駒は好きな場所に打てるので、盤上の同じ駒より少し価値が高い。</p>`},
+ {t:'交換の損得',sfen:INIT,body:`<p>駒を取り合ったとき、渡した駒と得た駒を比べる。</p><ul><li><b>金銀交換</b>　銀を渡して金を得る。少し得</li><li><b>二枚替え</b>　1枚渡して2枚得る。飛車を渡して金と銀を得るなら、ほぼ互角〜やや得</li></ul><p>ただし終盤は別。格言は<b>「終盤は駒の損得より速度」</b>。駒損しても、相手玉に迫るのが速ければ勝てる。</p>`},
+ {t:'玉は囲ってから戦う',sfen:INIT,marks:['5i'],body:`<p>初期位置のまま戦う玉を<b>居玉</b>という。居玉は王手や両取りがかかりやすく、一手のミスで負けにつながる。</p><p>格言：<b>「居玉は避けよ」</b>「<b>玉飛接近すべからず</b>」。飛車のいる側は戦場になりやすいので、玉は飛車と反対側へ移して囲う。</p>`},
+]},
+{id:'c2',title:'序盤の組み立て',sum:'最初の十数手で何をするか',pages:[
+ {t:'序盤にやる3つのこと',sfen:INIT,arrows:[['7g','7f'],['2g','2f']],body:`<p>序盤の目的は「戦える形を作る」こと。基本は3つ。</p><ul><li><b>角道を開ける</b>　▲７六歩で角の斜めのラインを通す</li><li><b>飛車先を伸ばす</b>　▲２六歩〜▲２五歩で飛車の攻めを準備</li><li><b>玉を囲う</b>　金銀で玉を守る形を作る</li></ul><p>この3つを、相手の動きを見ながら順番に進めていく。</p>`},
+ {t:'問題：最初の一手',sfen:INIT,quiz:{type:'answer',ans:['7g7f','2g2f'],q:'初手によく指される代表的な手を指してみよう（2つのうちどちらでも正解）。',hint:'角を働かせる手か、飛車を働かせる手。',ok:'▲７六歩は角道を開ける手、▲２六歩は飛車先を伸ばす手。プロの対局でも初手はこの2つが大半。'}},
+ {t:'居飛車と振り飛車',sfen:MINO,marks:['6h','2h'],body:`<p>飛車を2筋のまま使うのが<b>居飛車</b>、左へ移動させるのが<b>振り飛車</b>。</p><p>振り飛車は移動先で名前が変わる：５筋＝中飛車、６筋＝<b>四間飛車</b>、７筋＝三間飛車、８筋＝向かい飛車。</p><p>図は四間飛車。飛車を左に振ったぶん、玉を右側に囲える。振り飛車は相手の攻めを受け止めてカウンターを狙うのが基本方針で、方針が分かりやすい<b>四間飛車＋美濃囲い</b>は入門向きとよく言われる。</p>`},
+ {t:'居飛車の駒組みの例',sfen:FUNA,marks:['7h','6h','5h','6i'],body:`<p>居飛車の基本的な手順の一例：</p><p class="seq">▲７六歩 → ▲２六歩 → ▲４八銀 → ▲６八玉 → ▲７八玉 → ▲５八金右 → ▲６八銀</p><p>図の囲いが<b>舟囲い</b>。ここから急戦（早めの攻め）に出るか、矢倉や穴熊へ発展させてじっくり戦うかを選ぶ。</p><p>役割分担を意識しよう。<b>飛・角・銀・桂は攻め</b>、<b>金・銀は守り</b>が基本。</p>`},
+ {t:'序盤の格言',sfen:INIT,body:`<ul><li><b>飛車先の歩交換三つの得あり</b>　歩を持ち駒にでき、飛車が前に出られ、相手陣に傷を作れる</li><li><b>角筋に玉を置くな</b>　角のラインに玉がいると、王手と何かの両取り（王手飛車など）を食らいやすい</li><li><b>玉飛接近すべからず</b>　飛車の近くは戦場になる</li><li><b>攻めは飛角銀桂、守りは金銀三枚</b>　攻めと守りの役割分担</li></ul>`},
+]},
+{id:'c3',title:'囲いを知る',sum:'舟囲い・美濃・矢倉・穴熊',pages:[
+ {t:'舟囲い',sfen:FUNA,marks:['7h','6h','5h','6i'],body:`<p>居飛車の最も手軽な囲い。少ない手数で組めるので、すぐに攻めたい<b>急戦</b>向き。</p><p>弱点は<b>横と上からの攻めに薄い</b>こと。持久戦になったら矢倉や穴熊に組み替えることが多い。</p>`},
+ {t:'美濃囲い',sfen:MINO,marks:['2h','3h','4i','5h'],body:`<p>振り飛車の代表的な囲い。玉を２八、銀を３八、金を４九と５八に配置する。</p><p>飛車による<b>横からの攻めに非常に強い</b>のが特長。弱点は<b>端</b>と、玉頭（玉の真上）からの攻め。居飛車側は端攻めで美濃を崩すのが定番。</p>`},
+ {t:'矢倉囲い',sfen:YAGURA,marks:['8h','7h','7g','6g'],body:`<p>相居飛車（お互い居飛車）の代表的な囲い。金銀3枚で玉を包む。</p><p><b>上からの攻めに強く</b>、陣形のバランスが良い。組むのに手数がかかるので、相手の急戦に注意が必要。</p>`},
+ {t:'穴熊',sfen:ANA,marks:['9i','8h','7h','7i'],body:`<p>玉を隅に潜らせ、金銀で蓋をする最も堅い囲い。<b>王手がかかりにくい</b>ので、終盤は駒損してでも攻めを優先できる。</p><p>弱点は手数がかかることと、<b>端攻め</b>。格言「穴熊の姿焼き」は、囲いを崩されて隅で詰まされる負け方のこと。</p>`},
+ {t:'問題：美濃囲いを完成させる',sfen:'4k4/9/9/9/9/2P2P3/PPBPP1PPP/2SRG2K1/LN3GSNL b - 1',marks:['2h'],quiz:{type:'answer',ans:['3i3h'],q:'あと1手で美濃囲いが完成する。どの駒をどこへ動かす？',hint:'玉の左隣が空いている。',ok:'▲３八銀で美濃囲いの完成。銀が玉の横を守り、金２枚と連結する。'}},
+ {t:'囲いの選び方',sfen:INIT,body:`<p>囲いは「相手がどこから攻めてくるか」で選ぶ。</p><ul><li>横から攻められやすい（相手が居飛車で飛車を横に使う）→ <b>美濃</b></li><li>上から攻められやすい（相居飛車の銀や歩の攻め）→ <b>矢倉</b></li><li>とにかく堅くして終盤勝負 → <b>穴熊</b></li></ul><p>逆に、相手の囲いの<b>弱点</b>（美濃なら端と玉頭、穴熊なら端）を知っておくと攻め方が見えてくる。</p>`},
+]},
+{id:'c4',title:'攻めの基本',sum:'数の攻めと棒銀',pages:[
+ {t:'数の攻め',sfen:BOGIN,marks:['2c'],body:`<p>攻めの原則は<b>「数の攻め」</b>。ある地点に利いている自分の駒が、そこを守る相手の駒より多ければ突破できる。</p><p>図なら２三の地点。先手は歩・銀・飛車を集め、後手が金銀で守りに来るより先に、攻め駒の数を上回らせてから仕掛ける。足りないうちに仕掛けると、駒を損するだけで終わる。</p>`},
+ {t:'棒銀',sfen:BOGIN,arrows:[['2f','1e'],['2e','2d']],body:`<p>銀を２筋へまっすぐ進め、飛車と協力して攻める戦法。分かりやすく強力なので、まず覚えたい攻め方。</p><p class="seq">▲３八銀 → ▲２七銀 → ▲２六銀 → ▲１五銀（または▲２五銀）</p><p>銀が出たら▲２四歩と突き、△同歩▲同銀と進めて、飛・銀・歩の数で２筋を破る。相手が守りを固めたら端（１筋）に狙いを移すのも定番。</p>`},
+ {t:'歩の突き捨て',sfen:BOGIN,marks:['2e','2d'],body:`<p>攻める前に歩を突いて、わざと取らせる手を<b>突き捨て</b>という。</p><ul><li>大駒（飛・角）の通り道を開ける</li><li>相手の歩を前に釣り出して形を乱す</li><li>交換で持ち歩が増え、あとで「叩き」や「垂れ歩」に使える</li></ul><p>格言「<b>開戦は歩の突き捨てから</b>」。いきなり駒をぶつけるより、まず歩で相手陣を揺さぶる。</p>`},
+ {t:'攻めの格言',sfen:BOGIN,body:`<ul><li><b>大駒は離して打て</b>　飛・角は遠くから利かせた方が取られにくく、働きも大きい</li><li><b>と金の遅早</b>　と金攻めは遅そうに見えて、実は確実で速い</li><li><b>桂の高跳び歩の餌食</b>　桂馬を跳ねすぎると歩で取られる</li><li><b>攻めは足りているか確認</b>　攻め駒が2枚だけの攻めは切れやすい。3枚以上を目安に</li></ul>`},
+]},
+{id:'c5',title:'歩の手筋',sum:'たった1枚の歩で局面を変える',pages:[
+ {t:'叩きの歩',sfen:'6k2/7g1/9/9/9/9/9/7R1/4K4 b P 1',marks:['2c'],body:`<p>相手の駒の頭（真正面）に歩を打つ手。図で▲２三歩と打つと、</p><ul><li>△同金と取れば、▲同飛成で金を取れる（図のように飛車が利いている場合）</li><li>飛車が利いていなくても、金が上ずって玉から離れ、守りが弱くなる</li><li>取らなければ▲２二歩成で金を取れる</li></ul><p>どれでも得をする。持ち歩があるときはまず候補に入れたい。</p>`},
+ {t:'垂れ歩',sfen:'4k1s2/9/9/7P1/9/9/9/7R1/4K4 b - 1',arrows:[['2d','2c']],body:`<p>次の一手で成れる位置に歩を打っておく手。図の２四の歩がそれ。</p><p>次に▲２三歩成とすれば、と金が相手陣に入り込む。直接取られにくい場所に打つのがコツで、相手は受けに手番を使わされる。</p><p>と金は取られても歩1枚の損で済むので、相手にとって非常に嫌な攻め。</p>`},
+ {t:'継ぎ歩',sfen:'4k4/9/7p1/9/7P1/9/9/7R1/4K4 b P 1',marks:['2e','2d'],body:`<p>歩を突き捨てたあと、同じ筋にさらに歩を打って攻めを続ける手。</p><p class="seq">▲２四歩 △同歩 ▲２五歩（継ぎ歩）</p><p>相手が▲２五歩を取ると歩がさらに前に出てきて形が乱れ、取らなければ▲２四歩と取り込んで攻めが続く。飛車の前で歩を連打するのが典型形。</p>`},
+ {t:'問題：底歩で守る',sfen:'4k4/9/9/9/9/9/PPPP5/1K7/3G4+r b P 1',marks:['6i'],quiz:{type:'answer',ans:['P*5i','P*4i','P*3i','P*2i'],q:'後手の龍が横から６九の金を狙っている。持ち駒の歩で守ろう。',hint:'自陣の一番下の段に打つ。',ok:'自陣の最下段に打つ歩を<b>底歩</b>という。龍の横の利きを止め、しかも歩なので取られても損が少ない。飛車や龍の横からの攻めに特に強い。金のすぐ横（▲５九歩）に打つと、金が歩を支えてより安定する。'}},
+]},
+{id:'c6',title:'両取りの手筋',sum:'1手で2つを狙う',pages:[
+ {t:'両取りは最強の得',sfen:INIT,body:`<p>1手で2つの駒を同時に狙うのが<b>両取り</b>。相手は1手で片方しか逃がせないので、ほぼ確実に駒得できる。</p><p>中でも<b>王手</b>との両取りは強力。王手は必ず受けなければならないので、もう一方は必ず取れる（王手飛車、王手金取りなど）。</p><p>次の4問で代表的な形を覚えよう。</p>`},
+ {t:'問題：王手飛車',sfen:'6g2/1r5k1/9/9/9/9/9/9/4K4 b B 1',quiz:{type:'answer',ans:['B*5e'],q:'持ち駒の角で、後手の玉と飛車を同時に狙おう。',hint:'玉と飛車は同じ２段目にいる。斜めのラインが交わる場所は？',ok:'▲５五角打が<b>王手飛車</b>。玉が逃げたら飛車を取れる。玉と飛車が同じ斜め線に並ぶ形は常に警戒しよう（自分の玉も同じ）。'}},
+ {t:'問題：ふんどしの桂',sfen:'k2s1g3/9/9/9/9/9/9/9/4K4 b N 1',quiz:{type:'answer',ans:['N*5c'],q:'持ち駒の桂で、金と銀を同時に狙おう。',hint:'桂馬は2マス前の左右に利く。',ok:'▲５三桂打で金と銀の両取り。この形を<b>ふんどしの桂</b>という。桂は駒を飛び越えるので、間に駒を置いて防ぐこともできない。'}},
+ {t:'問題：割り打ちの銀',sfen:'k8/9/3g1g3/4P4/9/9/9/9/4K4 b S 1',quiz:{type:'answer',ans:['S*5b'],q:'持ち駒の銀で、2枚の金を同時に狙おう。',hint:'銀は斜め後ろにも動ける。金は斜め後ろに動けない。',ok:'▲５二銀打が<b>割り打ちの銀</b>。銀の斜め後ろの利きで2枚の金を狙う。金は斜め後ろに動けないので、この銀を取れない。'}},
+ {t:'問題：十字飛車',sfen:'k8/4s4/9/9/7g1/9/9/9/4K4 b R 1',quiz:{type:'answer',ans:['R*5e','R*9e','R*2a','R*2b','R*5a'],q:'持ち駒の飛車で、銀と金を同時に狙おう。',hint:'飛車は縦と横に利く。銀の筋と金の段が交わる場所は？',ok:'▲５五飛打なら縦で銀、横で金を狙う<b>十字飛車</b>。他にも▲９五飛打（王手金取り）など、縦横の利きで2つを狙う手はすべて正解。'}},
+]},
+{id:'c7',title:'寄せと1手詰',sum:'玉を追い詰める考え方',pages:[
+ {t:'寄せの格言',sfen:'4k4/9/4P4/9/9/9/9/9/4K4 b G 1',marks:['5b'],body:`<ul><li><b>玉は下段に落とせ</b>　玉を一番下（相手から見て奥）に追い込むと逃げ場が少ない</li><li><b>王手は追う手</b>　むやみに王手をすると玉が広い場所へ逃げてしまう</li><li><b>玉は包むように寄せよ</b>　逃げ道を先に塞いでから迫る</li><li><b>金はとどめに残せ</b>　金は最後の一押し（頭金など）で最も役立つ</li></ul>`},
+ {t:'詰めろと必至',sfen:'4k4/9/4P4/9/9/9/9/9/4K4 b G 1',body:`<p><b>詰めろ</b>：次に詰ます手があるぞ、という状態。相手は受けなければならない。</p><p><b>必至</b>：どう受けても次に詰む状態。こうなれば、自分の玉が先に詰まない限り勝ち。</p><p>終盤は「相手玉に詰めろをかけつつ、自玉は詰まない」状態を作るのが目標。</p>`},
+ {t:'問題：頭金',sfen:'4k4/9/4P4/9/9/9/9/9/4K4 b G 1',quiz:{type:'mate1',q:'1手で詰ませよう。',hint:'歩が支えになる。',ok:'▲５二金打の<b>頭金</b>。玉の真上に金を打ち、歩で支える最も基本的な詰み形。'}},
+ {t:'問題：龍の詰み',sfen:'7nk/6+R2/8P/9/9/9/9/9/4K4 b - 1',quiz:{type:'mate1',q:'1手で詰ませよう。',hint:'龍は斜めにも1マス動ける。歩の支えを使う。',ok:'▲１二龍（歩が支えている）で詰み。▲１二歩成も、龍が１二に利いているので詰み。隣の桂が玉の逃げ道を塞いでいる点に注目。'}},
+ {t:'問題：桂で詰ます',sfen:'7gk/8p/6S2/9/9/9/9/9/4K4 b N 1',quiz:{type:'mate1',q:'1手で詰ませよう。',hint:'桂は駒を飛び越えて利く。銀が２二を押さえている。',ok:'▲２三桂打で詰み。金も歩も桂を取れず、逃げ道の２二は銀が押さえている。自分の駒が玉の逃げ道を塞いでいる形は桂の詰みが生まれやすい。'}},
+ {t:'問題：大駒は離して打て',sfen:'7bk/8p/9/9/9/9/9/9/K8 b B 1',quiz:{type:'mate1',q:'1手で詰ませよう。',hint:'２二に打つと玉に取られる。',ok:'角を２二から離した斜めのライン（▲３三角〜▲８八角）に打てば詰み。近くに打つと取られる。<b>大駒は離して打て</b>の典型。'}},
+ {t:'速度計算',sfen:INIT,body:`<p>終盤は、お互いの玉が詰むまでの手数を比べる<b>速度計算</b>が大切。</p><ul><li>自玉が安全（詰めろでない）なら、相手玉に最速で迫る</li><li>自玉が詰めろなら、受けるか、王手の連続で先に詰ます</li><li>迷ったら、1手で2つ以上の意味がある手（攻防の手）を探す</li></ul><p>実戦モードでは、評価値の急な変化がこの計算ミスのサインになる。</p>`},
+]},
+{id:'c8',title:'3手詰に挑戦',sum:'王手→応手→とどめ',pages:[
+ {t:'問題：3手詰 その1',sfen:'k8/9/2G6/9/9/9/9/9/K8 b BS 1',quiz:{type:'mate3',q:'王手の連続で3手で詰ませよう。相手の応手はCPUが指す。',hint:'まず銀で玉を追い、角でとどめ。',ok:'▲８二銀打 △９二玉 ▲８一角打（角を離して打っても詰み）。銀は金が支えているので取られない。'}},
+ {t:'問題：3手詰 その2',sfen:'9/1k1+B5/9/9/9/9/9/9/K8 b RG 1',quiz:{type:'mate3',q:'王手の連続で3手で詰ませよう。',hint:'馬が７二に利いている。',ok:'▲７二飛打。馬が支えているので取れず、どこへ逃げても金を打って詰み（例：△９三玉 ▲８四金打）。'}},
+ {t:'問題：3手詰 その3',sfen:'1k1S5/9/9/9/9/9/9/9/K8 b RG 1',quiz:{type:'mate3',q:'王手の連続で3手で詰ませよう。',hint:'飛車は離して打つ。',ok:'▲８三飛打。△９二玉/△９一玉には▲８二金打、△７一玉には▲７二金打で詰み。銀が上部を押さえているのがポイント。'}},
+]},
+];
+const FUNA_END='ln3gsnl/1r1sg1kb1/p1pppp1pp/6p2/1p7/2P4P1/PP1PPPP1P/1BKSGS1R1/LN1G3NL b - 1';
+const BUILD_CH={id:'c3b',title:'囲いを組んでみよう',sum:'駒を動かして4つの囲いを完成させる',pages:[
+ {t:'舟囲いを組む',build:{sfen:INIT,marks:['7h','6h','5h','6i'],
+  steps:[['7g7f','角道を開ける','まずは角の通り道を作る。'],['2g2f','飛車先の歩を突く','居飛車の攻めの準備。'],['3i4h','右の銀を上げる','４八の銀は玉の通り道を空け、攻めにも守りにも使える。'],
+   ['5i6h','玉を左へ寄る','飛車から離れる方向へ。「玉飛接近すべからず」。'],['6h7h','玉をもう1マス寄る','７八が舟囲いの玉の定位置。'],['4i5h','右の金を玉に近づける','「５八金右」。金は玉のそばで働く。'],['7i6h','左の銀を上げて完成','銀が玉の斜め前を守る。']],
+  gote:['3c3d','8c8d','7a6b','5a4b','4b3b','6a5b','8d8e'],
+  done:'舟囲いの完成。7手で組める手軽さが長所。ここから急戦で攻めるか、穴熊などへ発展させる。'},
+  body:'<p>居飛車の基本、舟囲いを実際に組んでみよう。指示の通りに先手の駒を動かすと、後手も駒組みを進めてくる。</p>'},
+ {t:'美濃囲いを組む（四間飛車）',build:{sfen:INIT,marks:['2h','3h','4i','5h'],
+  steps:[['7g7f','角道を開ける','振り飛車でも最初は角道から。'],['6g6f','角道を止める','▲６六歩。四間飛車は角交換を避け、じっくり構える。'],['2h6h','飛車を６筋へ振る','▲６八飛で四間飛車。'],
+   ['5i4h','玉を右へ','飛車と反対側へ玉を運ぶ。'],['4h3h','さらに右へ','▲３八玉。'],['3h2h','玉の定位置へ','▲２八玉。'],['3i3h','銀を玉の隣へ','▲３八銀で「片美濃」。'],['6i5h','左の金を寄せて完成','▲５八金左で本美濃。']],
+  gote:['8c8d','3c3d','8d8e','7a6b','5a4b','4b3b','6a5b','4c4d'],
+  done:'美濃囲いの完成。金銀3枚が横一列に連結し、飛車の横からの攻めに強い。'},
+  body:'<p>振り飛車の代表、四間飛車＋美濃囲い。飛車を振ってから玉を右に囲う流れを体で覚えよう。</p>'},
+ {t:'矢倉を組む',build:{sfen:INIT,marks:['8h','7h','7g','6g'],
+  steps:[['7g7f','角道を開ける','相居飛車の出だし。'],['7i6h','左の銀を上げる','▲６八銀。'],['6g6f','６筋の歩を突く','銀の通り道を作り、角道を止める。'],['6h7g','銀を７七へ','▲７七銀。矢倉の要。'],
+   ['6i7h','左の金を７八へ','▲７八金。'],['4i5h','右の金を上げる','▲５八金。'],['5h6g','金を６七へ','▲６七金で「金矢倉」の骨格ができる。'],['8h7i','角を引く','▲７九角。玉の通り道を空ける。'],
+   ['5i6i','玉を左へ','▲６九玉。'],['7i6h','角をどかす','▲６八角。玉が７九を通れるようにする。'],['6i7i','玉を７九へ','▲７九玉。'],['7i8h','玉を入城させて完成','▲８八玉。']],
+  gote:['8c8d','7a6b','5a4b','4b3b','6a5b','4a4b','9c9d','1c1d','3c3d','2b3c','8d8e','6c6d'],
+  done:'金矢倉の完成。手数はかかるが、上部に厚く、バランスの良い堅陣。'},
+  body:'<p>相居飛車の王道、金矢倉。手数は多いが、駒同士がどう連携するかがよく分かる。</p>'},
+ {t:'舟囲いから穴熊へ',build:{sfen:FUNA_END,marks:['9i','9h','8h','7i','7h'],
+  steps:[['8h7g','角を上げる','▲７七角。玉が８八に入る場所を作る。'],['7h8h','玉を８八へ','▲８八玉。'],['9i9h','香を上げる','▲９八香。玉が潜る「穴」を作る。'],['8h9i','玉を穴に潜らせる','▲９九玉。'],
+   ['6h7i','銀を引く','▲７九銀。銀は斜め後ろに下がれる。'],['7i8h','銀で蓋をする','▲８八銀。'],['6i7i','金を寄る','▲７九金。'],['5h6h','もう1枚の金を寄せる','▲６八金。'],['6h7h','金をくっつけて完成','▲７八金。']],
+  gote:['9c9d','1c1d','4a4b','5c5d','6c6d','7c7d','9d9e','1d1e','4c4d'],
+  done:'居飛車穴熊の完成。王手がかかりにくく、終盤は駒損を恐れず攻められる。'},
+  body:'<p>舟囲いの局面から、最も堅い穴熊へ組み替える。持久戦になったときの定番の発展形。</p>'},
+]};
+const NEXT_CH={id:'c9',title:'次の一手',sum:'実戦形の局面で最善手を探す',pages:[
+ {t:'次の一手：飛車先を活かす',sfen:'lnsgkgsnl/1r5b1/p1pppp1pp/6p2/1p5P1/2P6/PP1PPPP1P/1B5R1/LNSGKGSNL b - 1',last:'8e',
+  quiz:{type:'answer',tag:'次の一手',ans:['2e2d'],q:'▲７六歩 △３四歩 ▲２六歩 △８四歩 ▲２五歩 △８五歩 と進んだ。伸ばした飛車先の歩をどう活かす？',hint:'飛車の前の歩を、さらに前へ。',
+  ok:'▲２四歩で飛車先の歩交換を狙う。△同歩▲同飛となれば歩が手に入り、飛車も前に出て働く。格言「飛車先の歩交換三つの得あり」の実践。'}},
+ {t:'次の一手：角交換の取り返し',sfen:'lnsgkgsnl/1r7/p1pppp1pp/6p2/1p5P1/2P6/PP1PPPP1P/1+bG4R1/LNS1KGSNL b b 1',last:'8h',
+  quiz:{type:'answer',tag:'次の一手',ans:['7i8h'],ng:{'7h8h':'金でも取れるが、金が玉から離れてしまう。'},q:'後手が△８八角成と角を交換してきた。どの駒で取り返す？',hint:'金は玉のそばに残したい。',
+  ok:'▲同銀が定跡。銀が８八に上がって玉の守りにも攻めにも使え、金は玉のそばに残せる。金で取ると守りの金が玉から離れ、７九の銀も働きにくくなる。'}},
+ {t:'次の一手：２筋を突破する',sfen:'lng1kgsn1/3sr2bl/p1ppppppp/1p7/7P1/1PP6/P2PPPP1P/1B2GGSR1/LNS2K1NL b - 1',
+  quiz:{type:'answer',tag:'次の一手',ans:['2e2d'],q:'後手は中飛車。２筋の守りが薄い。攻めの一手は？',hint:'歩の突き捨て。',
+  ok:'▲２四歩。△同歩なら▲同飛で、飛車が２二の角に当たり、▲２三飛成も狙える。歩を突き捨てて飛車先を突破するのが居飛車の基本の攻め。'}},
+ {t:'次の一手：前問の続き',sfen:'lngk1gsn1/3sr2bl/p1ppppppp/1p5P1/9/1PP6/P2PPPP1P/1B2GGSR1/LNS2K1NL b - 1',last:'6a',
+  quiz:{type:'answer',tag:'次の一手',ans:['2d2c+'],ng:{'2d2c':'歩を成らないと、相手の駒を同時に狙えない。'},q:'後手は２四の歩を取らず、△６一玉と逃げた。どうする？',hint:'歩は敵陣に入ると成れる。',
+  ok:'▲２三歩成。できたと金が２二の角と１二の香に同時に当たり、後手にはこのと金を取る駒がない。歩1枚で大きな駒得になる。'}},
+ {t:'次の一手：角を捕まえる',sfen:'lns2gsn1/3k2g1l/p1pppprp1/1p2b4/8p/2P1B2PP/PPSPG1P2/3K3R1/LN3GSNL b P2p 1',
+  quiz:{type:'answer',tag:'次の一手',ans:['P*5e'],q:'後手の角が５四に出てきた。うまく捕まえる手がある。',hint:'角の頭（真正面）を歩で叩く。',
+  ok:'▲５五歩打。角は真正面の歩を取れない。逃げ道の６五・４五は５六の角、７六の歩を取れば７七の銀、３六は３七の歩、２七は飛車が押さえていて、角を歩1枚で捕獲できる。'}},
+ {t:'次の一手：大駒を成り込む',sfen:'lnsg1g1nl/3r1k1s1/ppppp2p1/5Bp1p/6b2/1PP1P4/P2P1PPPP/3G1GKR1/LNS3SNL b P 1',
+  quiz:{type:'answer',tag:'次の一手',ans:['4d2b+'],ng:{'4d2b':'銀は取れるが、成らないのはもったいない。'},q:'４四の角が敵陣をにらんでいる。次の一手は？',hint:'取れる駒を、成りながら取る。',
+  ok:'▲２二角成。タダで銀を取り、しかも馬を作れる。次は▲１一馬で香も取れる。角や飛車は成ると上下左右（または斜め）に1マス動けるようになり、攻守とも大幅に強くなる。'}},
+]};
+LESSONS.splice(3,0,BUILD_CH);LESSONS.push(NEXT_CH);
+const GENP=[["5g3/l1sg1k2l/n1p1rpsp1/3pp1p1p/5P1nb/2P+BP1P2/PP1PS2PP/L2K1GSRL/2G4N1 b 2Pn 1","9c","駒得","駒得を狙う",1,["2g2f"],0,"数手先に駒得できる筋がある。","<b>▲２六歩</b>。数手後に駒得できる。読み筋の範囲で、駒の損得はおよそ+260点。<br>読み筋：▲２六歩 △６五桂打 ▲４六銀 △８五桂 ▲２五歩 △９七香成<br>この手の後の評価値 +307、次善の▲４九銀（−50）とは大きな差がある。"],["9/l1sPg4/+Ppp1P2+B1/2k2g3/RPn2pp1p/2PRp+b2P/N8/L3G3L/2SGK1+l2 b N2sn6p 1","3i","詰み","1手詰",1,["N*8f"],1,"王手の連続で玉を追い詰められる。","<b>▲８六桂打</b>。一発で詰む。玉の逃げ道がすべて押さえられているかを確かめよう。<br>読み筋：▲８六桂打まで<br>この手の後の評価値 詰み。"],["5kbR1/Ls4rP+P/lp+P1pp2p/ng1P+S1ps1/p8/3G2PNP/Pg2PP1SN/L2L1G1K1/bN1+p5 b 2p 1","3b","好手","形勢を良くする一手",1,["5d4c"],0,"相手の弱点や働いていない駒に注目。","<b>▲４三成銀</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲４三成銀 △７三銀 ▲３二成銀 △同玉 ▲７一飛打 △４一銀打<br>この手の後の評価値 +961、次善の▲３一飛成（+288）とは大きな差がある。"],["1nk1g4/l2s4l/1g2rpnpp/p2pp1pP1/1p6P/2p1PP1R1/PP1PSKP1L/L2SGG3/1N1B3N1 b Sbp 1","3c","成り込み","駒を成り込む",1,["2d2c+"],0,"敵陣に入って成れる駒がある。","<b>▲２三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲２三歩成 △４四角打 ▲２四飛 △８八角成 ▲３三と △８九馬<br>この手の後の評価値 +1368、次善の▲１四歩（+970）とは大きな差がある。"],["1nk3sn1/2rsgb2l/1ppp1g1pp/l3pPp2/p7P/1P4PPL/PS1PPRN2/LB2GS3/1N1KG4 b Pp 1","9d","両取り","角と金の両取り",1,["4d4c+"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲４三歩成</b>。角と金を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲４三歩成 △４六歩打 ▲同飛 △２四角 ▲４四飛 △４二金<br>この手の後の評価値 +2091、次善の▲４三歩不成（+1185）とは大きな差がある。"],["1ns3n2/3G3g1/lp2kpp2/2p1b2p1/P2pp1P2/2P1P1RPP/LP1P1PG2/2lG1SN2/1NS1K4 b R2Pbsl 1","3a","王手〇取り","王手金取り",1,["R*5b"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲５二飛打</b>。王手をかけながら金も狙う手。相手は玉を逃がすしかなく、次に金が取れる。<br>読み筋：▲５二飛打 △６四玉 ▲２二飛成 △７九香成 ▲７一金 △８九成香<br>この手の後の評価値 +1874、次善の▲５一飛打（+1254）とは大きな差がある。"],["1n1s2kn1/1rg3sbl/lppgpp2p/p4P3/3p2p2/PBP1S1Pp1/LP1PP1GPP/1SGK1R2L/1N5N1 b - 1","3e","詰めろ","詰めろをかける",1,["4d4c+"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲４三歩成</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲４三歩成 △同銀 ▲同飛成 △７一金 ▲３五歩 △２七歩成<br>この手の後の評価値 +1512、次善の▲２六金（+354）とは大きな差がある。"],["B1sk1g3/l5g1l/1rn2pnpp/ppppp1p2/5P1P1/2PbP3P/PP4P2/L1S2GS1L/SN2RGKN1 b p 1","6f","受け","相手の狙いを防ぐ",1,["7h7g"],0,"放っておくと相手に大きな狙いがある。先に防ごう。","<b>▲７七銀</b>。何もしないと相手に大きな狙いがある（放置すると評価値はおよそ−812。たとえば△９九角成）。この手でその狙いを防ぐ。<br>読み筋：▲７七銀 △同角成 ▲同桂 △６八銀打 ▲６三角打 △５九銀成<br>この手の後の評価値 +905、次善の▲７七桂（+441）とは大きな差がある。"],["+Pn1k1S+L2/3g1r2n/2psp1p1l/P4p1pp/3p5/+b3gP1PP/4PG2L/p1+p2SK2/+l6NR b BSNg3p 1","5f","駒得","金を取る",1,["4g5f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲５六金</b>。金を取る。読み筋の範囲で、駒の損得はおよそ+370点の得になる。<br>読み筋：▲５六金 △７一玉 ▲８一と △同玉 ▲３二銀成 △４三飛<br>この手の後の評価値 +801、次善の▲５六歩（+490）とは大きな差がある。"],["1n1+L1k3/2+R3s1l/+P1p1pp1pp/1p3s3/g3RBp2/1PP1PnP1N/+plK4PP/6+bsL/g5g2 b GSNP2p 1","9e","詰み","1手詰",1,["G*4b"],1,"王手の連続で玉を追い詰められる。","<b>▲４二金打</b>。一発で詰む。玉の逃げ道がすべて押さえられているかを確かめよう。<br>読み筋：▲４二金打まで<br>この手の後の評価値 詰み。"],["1+R7/l3gks1l/2+Lp2n1p/p3p1pSn/3P5/PpP2PP1P/1P2PS1P1/1S1RGK2L/1+b1g3N1 b N3Pbg 1","6i","好手","形勢を良くする一手",1,["6h6i"],0,"相手の弱点や働いていない駒に注目。","<b>▲６九飛</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲６九飛 △８八馬 ▲９二龍 △８七馬 ▲７九飛 △９六馬<br>この手の後の評価値 +1544、次善の▲３三銀成（+1039）とは大きな差がある。"],["1n5+P1/lnrsk4/pp1p1p3/1Np4b1/2B3p2/P3p1P2/LPSP1+ll1+p/R2K1G3/sN1G1G1+pS b g4p 1","4g","成り込み","駒を成り込む",1,["8d7b+"],0,"敵陣に入って成れる駒がある。","<b>▲７二桂成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲７二桂成 △５七金打 ▲７八玉 △７五歩 ▲５四飛打 △５三銀<br>この手の後の評価値 +463、次善の▲４七金（−841）とは大きな差がある。"],["1ns6/2Gr3g1/lp1bkpp2/2pp3p1/P3p1P2/2P1P1RPP/LP1PNPG2/2lG1SN2/1NS1K4 b L2Pbs 1","7h","両取り","角と銀の両取り",1,["7b6b"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲６二金</b>。角と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲６二金 △同玉 ▲７八銀 △３六角 ▲同金 △５六歩<br>この手の後の評価値 +1512、次善の▲５四香打（+852）とは大きな差がある。"],["1n1g2s2/l2k1b3/pr2sp2+B/4l3p/2p1P1ppP/1pPp1SPP1/P2G1P2L/6KR1/+nN1NGGS2 b L3p 1","6f","王手〇取り","王手undefined取り",1,["L*6e"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲６五香打</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲６五香打 △７二玉 ▲６六金 △７一金 ▲５四歩 △同銀<br>この手の後の評価値 +1428、次善の▲６六金（+979）とは大きな差がある。"],["1nsk2s1G/l1gn5/pp1p1prsl/2p1p2p1/P5p1P/1NS+BP1PPB/LP1P2l2/3G4p/1NK3R2 b G2p 1","3g","詰めろ","詰めろをかける",1,["6f3c"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲３三馬</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲３三馬 △７三金 ▲４三角成 △７二玉 ▲３七飛 △３二銀<br>この手の後の評価値 +4044、次善の▲３七飛（+2288）とは大きな差がある。"],["1G5n1/l7l/n2gps1pb/pkP2ppr1/1b1p2P1P/P4PGG1/LP1PP2P1/2R4SL/1N1SK2N1 b 3Ps 1","8e","受け","相手の狙いを防ぐ",1,["3f2e"],0,"放っておくと相手に大きな狙いがある。先に防ごう。","<b>▲２五金</b>。何もしないと相手に大きな狙いがある（放置すると評価値はおよそ−413。たとえば△６七角成）。この手でその狙いを防ぐ。<br>読み筋：▲２五金 △６七角成<br>この手の後の評価値 +1163、次善の▲２五金（+717）とは大きな差がある。"],["1n2g2+R1/l1ksl3+P/1g3pn1p/p1r3p2/1pPpp3P/3nPPP2/PP1PSK2L/L1pSGG1S1/b2B3N1 b p 1","5b","駒得","飛を取る",1,["7e7d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７四歩</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+910点の得になる。<br>読み筋：▲７四歩 △５八桂成 ▲同角 △８八角成 ▲６四桂打 △６三玉<br>この手の後の評価値 +2253、次善の▲６六銀（+1623）とは大きな差がある。"],["5gk2/S7l/2pg1RnSp/Rp2p1pp1/P2p5/pN1L2PPP/1+l1P+bn2L/1S1S5/bK2G2N1 b GP4p 1","8g","詰み","1手詰",1,["G*2b"],1,"王手の連続で玉を追い詰められる。","<b>▲２二金打</b>。一発で詰む。玉の逃げ道がすべて押さえられているかを確かめよう。<br>読み筋：▲２二金打まで<br>この手の後の評価値 詰み。"],["1n1gk4/l1s1g2sl/3pprnpp/ppp3p2/P3bpPP1/1B5R1/1PPPP1S1P/L1GS1G2L/1N2K2N1 b p 1","9b","好手","形勢を良くする一手",1,["3e3d"],0,"相手の弱点や働いていない駒に注目。","<b>▲３四歩</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲３四歩 △２五桂<br>この手の後の評価値 +329、次善の▲２四歩（−189）とは大きな差がある。"],["1n1s2kn1/1rg1s3l/lpp1p3p/P3g1P2/2Pp4b/1B2S2P1/LP1PP1GpP/1SGK1R2L/1N5N1 b 4P 1","1e","成り込み","駒を成り込む",1,["9d9c+"],0,"敵陣に入って成れる駒がある。","<b>▲９三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲９三歩成 △同桂 ▲同香成 △８一飛 ▲２三香打 △２八歩成<br>この手の後の評価値 +2277、次善の▲９三歩不成（+1974）とは大きな差がある。"],["1ns1g2n1/r3g1s1l/l3k2p1/1ppR2p1p/p3p1PPb/1P1PP4/2P2P2N/LBS1GS2L/1NKG5 b 3Pp 1","5c","両取り","銀と銀の両取り",1,["6d7d"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲７四飛</b>。銀と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲７四飛 △７二銀 ▲３四飛 △３三銀 ▲８四飛 △５六歩<br>この手の後の評価値 +698、次善の▲３四飛（+255）とは大きな差がある。"],["8b/1R3gl2/1+Snksg1p1/lp2rp2l/p4Pp1p/1P1p2PP1/N3G1S1N/L1G2K3/2BS5 b N3P4p 1","6c","王手〇取り","王手金取り",1,["8b7b+"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲７二飛成</b>。王手をかけながら金も狙う手。相手は玉を逃がすしかなく、次に金が取れる。<br>読み筋：▲７二飛成 △７四玉 ▲７三龍 △６五玉 ▲６三龍 △６四銀<br>この手の後の評価値 +2111、次善の▲８一飛成（+1740）とは大きな差がある。"],["1+Bs1kg1n1/l1r2s3/g2p1p3/ppp4p1/5Pp2/PPP1P2P1/N2P2P2/L3RSK2/+b1G2GSN+l b N2Plp 1","1i","詰めろ","詰めろをかける",1,["8a7b"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲７二馬</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲７二馬 △同銀 ▲７一飛打 △６一銀 ▲２八銀 △１四角打<br>この手の後の評価値 +658、次善の▲８五歩（+256）とは大きな差がある。"],["1ng1g2n+B/4k4/lp1ppsr2/1s4pnp/p4P1+b1/P1S1P3P/LP1P2GPL/2R6/1NG2K1s1 b L4Pp 1","2i","駒得","桂を取る",1,["1a2a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２一馬</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲２一馬 △２三飛 ▲１二馬 △３三飛 ▲２二馬 △４八歩打<br>この手の後の評価値 +251、次善の▲８五銀（−52）とは大きな差がある。"],["1n1s4k/l1gg1s1R1/1pP2pp1n/pG1ppn2p/2p3l1P/1P3P3/P2+b2P1L/2L2GSR1/2S1K2N1 b Pb3p 1","6g","詰み","1手詰",1,["2b2a+"],1,"王手の連続で玉を追い詰められる。","<b>▲２一飛成</b>。一発で詰む。玉の逃げ道がすべて押さえられているかを確かめよう。<br>読み筋：▲２一飛成まで<br>この手の後の評価値 詰み。"],["2sn1k3/lr2g4/pp+B3g1l/2p1pp1pP/9/2P6/PP1PPP3/LB1S1G2L/1N1NKGSr1 b S3Pn2p 1","3c","好手","形勢を良くする一手",1,["7c8b"],0,"相手の弱点や働いていない駒に注目。","<b>▲８二馬</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲８二馬 △同銀 ▲２一飛打 △３一歩打 ▲１三歩成 △２五飛成<br>この手の後の評価値 +2224、次善の▲３七馬（+1806）とは大きな差がある。"],["1n1g1g3/1s1r2k1l/p1p1pp1s1/4P1ppp/1B1p1Pn2/1LP4P1/PP1P1nP1P/L1SR1KS1L/+b2G1G1N1 b p 1","8b","成り込み","駒を成り込む",1,["5d5c+"],0,"敵陣に入って成れる駒がある。","<b>▲５三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲５三歩成 △７二飛 ▲４三と △３一玉 ▲６三角成 △９八馬<br>この手の後の評価値 +752、次善の▲４一角成（+63）とは大きな差がある。"],["1ns1gr1n1/3k2s1l/l2g3p1/1pp3p1p/p3p1PPP/1PP1P4/5P2N/LBS1GS2L/1NKG5 b RPb3p 1","4a","両取り","銀と銀の両取り",1,["R*2b"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲２二飛打</b>。銀と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲２二飛打 △４三角打 ▲１二飛成 △７六角 ▲９七香 △９八角成<br>この手の後の評価値 +497、次善の▲９二飛打（+142）とは大きな差がある。"],["1ns4n1/1r1s1kg1l/l1p2spp1/pp2p3P/2gP1p3/P5P2/1PP1G1NPL/LB1G1SR2/1N1K5 b B2P2p 1","4b","王手〇取り","王手金取り",1,["B*6d"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲６四角打</b>。王手をかけながら金も狙う手。相手は玉を逃がすしかなく、次に金が取れる。<br>読み筋：▲６四角打 △５二玉 ▲７五角 △７四歩 ▲６四角 △７三銀<br>この手の後の評価値 +1762、次善の▲９七角（+1332）とは大きな差がある。"],["1nsg5/l1rk1gs1l/5p+Ppp/ppp1p4/9/1BP1P4/PPS1SP1PP/7+nL/1+b1GKG1N1 b RNL2Pp 1","6b","詰めろ","詰めろをかける",1,["8f4b+"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲４二角成</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲４二角成 △３三銀 ▲同馬 △１八成桂 ▲８三銀打 △２九成桂<br>この手の後の評価値 +1970、次善の▲６五香打（+1657）とは大きな差がある。"],["2s1skb2/lrg6/np1ppp3/p1P3pBl/2pPPn1p1/1P7/P4KPPL/L1S1GSR2/1N4GN1 b G3p 1","4a","駒得","香を取る",1,["1g1d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１四香</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲１四香 △２二角 ▲３三金打 △３一角 ▲１三香成 △５二玉<br>この手の後の評価値 +1759、次善の▲７三金打（+1470）とは大きな差がある。"],["2sk3s1/2gr1+P3/lpn2N2p/3p5/2p3S2/p1P1PP3/1PNP2GPP/1+bGRG1KsL/1+l5N1 b L5Pb 1","6a","詰み","1手詰",1,["4b5a"],1,"王手の連続で玉を追い詰められる。","<b>▲５一と</b>。一発で詰む。玉の逃げ道がすべて押さえられているかを確かめよう。<br>読み筋：▲５一とまで<br>この手の後の評価値 詰み。"],["r6k1/2g2+P2l/1p1g1ps1n/l1pp2ppN/4b3p/PPP3SP1/L2PSPP1P/RG3K2L/1N4GN1 b S2Pb 1","5e","好手","形勢を良くする一手",1,["4b4c"],0,"相手の弱点や働いていない駒に注目。","<b>▲４三と</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲４三と △３五歩 ▲同銀 △５一飛 ▲３三と △同角<br>この手の後の評価値 +1581、次善の▲３二銀打（+1160）とは大きな差がある。"],["1ng1k1bn1/lr1s1gs1l/pp2ppp1p/7P1/3P5/1Sp6/PP2PPP1P/LB3G1RL/1N1GK1SN1 b 2Pp 1","4b","成り込み","駒を成り込む",1,["2d2c+"],0,"敵陣に入って成れる駒がある。","<b>▲２三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲２三歩成 △７七歩成 ▲同銀<br>この手の後の評価値 +1668、次善の▲５五角（+1017）とは大きな差がある。"],["1n5n1/lrg1k1s1l/pp2ppgpp/3p2p2/2p1B4/3SP1P2/PP1P1P1PP/LB1SGK2L/1N1G3N1 b Srp 1","7e","両取り","飛と飛の両取り",1,["S*9a"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲９一銀打</b>。飛と飛を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲９一銀打 △８四飛打 ▲８二銀成 △同金 ▲７八金 △５四歩<br>この手の後の評価値 +1543、次善の▲７五銀（+942）とは大きな差がある。"],["2+P1k1Sbs/4r1g2/l4p1pn/Bpppp1p1l/7Pp/3P2P2/LPG1PP1RP/2Sg4L/1N2sK1N1 b GN2p 1","9c","王手〇取り","王手飛取り",1,["9d6a+"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲６一角成</b>。王手をかけながら飛も狙う手。相手は玉を逃がすしかなく、次に飛が取れる。<br>読み筋：▲６一角成 △４一玉 ▲９三香成 △５三飛 ▲３三香打 △同金<br>この手の後の評価値 +1424、次善の▲６三桂打（+985）とは大きな差がある。"],["1nB3k2/lr3g2+N/1s2pp3/3N2s1p/1PpP1Pp2/p2SS2P1/P1L1P1GpP/L1NKG4/8R b Pbgl3p 1","9f","詰めろ","詰めろをかける",1,["7a8b+"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲８二角成</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲８二角成 △２八歩成 ▲５九飛 △３六歩 ▲同金 △２七角打<br>この手の後の評価値 +2679、次善の▲３二歩打（+2347）とは大きな差がある。"],["1ns3n2/3G3+B1/lp3ppl1/2p1k2p1/P2pp1P2/2P1P1RPP/LP1P1PG2/3G1SN2/1N+l1K1Gr1 b 2Pb2s 1","7i","駒得","飛を取る",1,["3i2i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２九金</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+760点の得になる。<br>読み筋：▲２九金 △６二銀 ▲３一馬 △６三玉 ▲４一馬 △７二玉<br>この手の後の評価値 +2657、次善の▲４六桂（+2357）とは大きな差がある。"],["1n1k1g3/lls6/pp1p+Bgs2/2p2p1l1/P8/L3PPp2/NPPP3n1/bG1G5/2K3s2 b RS6Prn 1","3i","詰み","1手詰",1,["R*7a"],1,"王手の連続で玉を追い詰められる。","<b>▲７一飛打</b>。一発で詰む。玉の逃げ道がすべて押さえられているかを確かめよう。<br>読み筋：▲７一飛打まで<br>この手の後の評価値 詰み。"],["3k5/lrs1gg1sl/n1ppppnpp/Pp7/1P4PP1/2P1P3P/N1bPGP1R1/L2S1S2L/2B1K1GN1 b 2P 1","7g","好手","形勢を良くする一手",1,["6h7g"],0,"相手の弱点や働いていない駒に注目。","<b>▲７七銀</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲７七銀 △８五桂 ▲同桂 △同歩 ▲９三歩成 △同香<br>この手の後の評価値 +2495、次善の▲９三歩成（+1699）とは大きな差がある。"],["1ngs3n1/l6kl/p1prbg1pp/1P1pp1p2/7P1/2PPP3P/P1N3P1L/L1KS1S2R/B1G1G2N1 b S2Pp 1","5c","成り込み","駒を成り込む",1,["8d8c+"],0,"敵陣に入って成れる駒がある。","<b>▲８三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲８三歩成 △６二飛 ▲８二歩打 △同金 ▲同と △同飛<br>この手の後の評価値 +1971、次善の▲５七銀（+1321）とは大きな差がある。"],["7nb/2rsgPk1l/1pngp1p2/5G1pp/2pP1p3/2S1P1P1P/+lPPG4L/L4SSR1/3K3N1 b B2Pn2p 1","2d","両取り","飛と飛の両取り",1,["B*6a"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲６一角打</b>。飛と飛を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲６一角打 △９二飛 ▲５二角成 △７六歩 ▲４三馬 △２二玉<br>この手の後の評価値 +675、次善の▲９七香（+138）とは大きな差がある。"],["1+P2k2b1/6gs1/+P4p1p1/1p1Gp1p1l/5s1np/3P2P2/lP1GPP1RP/2g1b1K1L/1N2s2N1 b RSPnl3p 1","2e","王手〇取り","王手金取り",1,["R*7a"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲７一飛打</b>。王手をかけながら金も狙う手。相手は玉を逃がすしかなく、次に金が取れる。<br>読み筋：▲７一飛打 △６一香打 ▲７八飛成 △６七角成 ▲同龍 △６四香<br>この手の後の評価値 +1068、次善の▲２五飛（−488）とは大きな差がある。"],["r1+R5b/4k3g/Bp1s1lp2/1g1spp1pp/pn1pPP1P1/l1p1G1P2/n2PS1L2/2L2K1S1/1NG5N b 4p 1","9a","詰めろ","詰めろをかける",1,["7a9a"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲９一龍</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲９一龍 △８九桂成 ▲３二飛打 △４二桂打 ▲１二飛成 △７九成桂<br>この手の後の評価値 +2008、次善の▲８二龍（+1395）とは大きな差がある。"],["+R8/l2bggs1l/1N+Lp3Gp/p3pkp1n/3P3N1/PpPs1PP1P/1P2PS1P1/1+b2GK2L/3R3N1 b 3Ps 1","6b","駒得","角を取る",1,["7c6b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６二成香</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+580点の得になる。<br>読み筋：▲６二成香 △２三銀 ▲５二成香 △同金 ▲９二龍 △７八金打<br>この手の後の評価値 +2459、次善の▲４五歩（+1976）とは大きな差がある。"],["3gk1gn1/l1s3s1l/+Prppp1+Ppp/5p3/1p2b4/7PP/2PPPPN1L/+pB1SKS1R1/1N1G1G3 b NPlp 1","3b","好手","形勢を良くする一手",1,["9c8c"],0,"相手の弱点や働いていない駒に注目。","<b>▲８三と</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲８三と △同銀 ▲３二と △同金 ▲５六歩 △８八と<br>この手の後の評価値 +1715、次善の▲３二と（+1018）とは大きな差がある。"],["snk3sn1/l2r5/pppggpbpl/4p2Pp/9/PPPGPP2P/6p2/LBKG3RL/1NS3SN1 b P2p 1","3g","成り込み","駒を成り込む",1,["2d2c+"],0,"敵陣に入って成れる駒がある。","<b>▲２三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲２三歩成 △４四角 ▲１三と △２七歩打 ▲同飛 △１三桂<br>この手の後の評価値 +862、次善の▲６四歩打（+466）とは大きな差がある。"],["1ngs2kn1/l7l/p1pr1gspp/1P1ppbp2/5P1P1/2PP4P/P1N1P1P1L/L1KS1S2R/B1G1G2N1 b 2P 1","3a","両取り","金と金の両取り",1,["4e4d"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲４四歩</b>。金と金を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲４四歩 △同銀 ▲８三歩成 △６二飛 ▲８二歩打 △同金<br>この手の後の評価値 +2648、次善の▲８三歩成（+1446）とは大きな差がある。"],["5gs2/lsr1k1g1l/pp3pb1+N/3pp1p1p/1Pp1PPP2/P1+b1N2PP/L2PS2RL/3GS4/1N2KG3 b NPp 1","7f","王手〇取り","王手飛取り",1,["5f6d"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲６四桂</b>。王手をかけながら飛も狙う手。相手は玉を逃がすしかなく、次に飛が取れる。<br>読み筋：▲６四桂 △６三玉<br>この手の後の評価値 +1656、次善の▲７七歩打（+355）とは大きな差がある。"],["1nr1sg2B/l1g5l/2ppp2pn/pp4k2/1b3p2p/2P1P1S2/PP1P2P1P/L1G2S1RL/1NS1KG1N1 b P2p 1","3d","詰めろ","詰めろをかける",1,["1a2b+"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲２二角成</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲２二角成 △２四歩 ▲１二馬 △４三玉 ▲１三馬 △７六角<br>この手の後の評価値 +2635、次善の▲５五角成（+1696）とは大きな差がある。"],["3gk4/l1s1g2sl/3pp1+Ppp/pp3r3/P1pn1pBP1/1B1P2pR1/1PP1P1G1P/L1GS4L/1N2K2N1 b Psn 1","6e","駒得","飛を取る",1,["3e4d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲４四角</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+890点の得になる。<br>読み筋：▲４四角 △３七歩成 ▲２二と △４三金 ▲５五角 △１四桂打<br>この手の後の評価値 +2519、次善の▲２二と（+1892）とは大きな差がある。"],["1n2k1s2/1r1sgg3/l1pp2n1l/pp1bp2pp/9/P1P2Pp2/1P1PP2PP/L1S1RS2L/BN1GKG1N1 b Pp 1","3c","好手","形勢を良くする一手",1,["P*3d"],0,"相手の弱点や働いていない駒に注目。","<b>▲３四歩打</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲３四歩打 △４七歩打 ▲同銀 △２五桂 ▲３三歩成 △３七歩成<br>この手の後の評価値 +515、次善の▲４七銀（+149）とは大きな差がある。"],["2s1k1s2/l2r1n2l/N2g1p2b/Pppgp1Pp1/1P3P2p/4PGRPP/B1PP2N1L/L2S3G1/1NK2S3 b P2p 1","6d","成り込み","駒を成り込む",1,["3d3c+"],0,"敵陣に入って成れる駒がある。","<b>▲３三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲３三歩成 △９六歩打 ▲８六角 △８五歩 ▲９五角 △９三香<br>この手の後の評価値 +1516、次善の▲１五歩（+1255）とは大きな差がある。"],["4sk1+N1/1Pnrg4/n1psp3l/3p1Bpg1/l4P1pp/2P1P1P2/1+p1PSK1PP/3GS2RL/5G1N1 b BPl2p 1","2d","両取り","金と銀の両取り",1,["4d3c+"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲３三角成</b>。金と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲３三角成 △４六歩打 ▲同銀 △４二金 ▲２四馬 △３二玉<br>この手の後の評価値 +2426、次善の▲２二角成（+1547）とは大きな差がある。"],["2s2gs2/l1+N2kg1l/pp3pb1+N/6P1p/1Pp2P3/P1+b1p2PP/L2PS2RL/3GS4/1N2KG3 b N3Pr2p 1","5f","王手〇取り","王手金取り",1,["3d3c+"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲３三歩成</b>。王手をかけながら金も狙う手。相手は玉を逃がすしかなく、次に金が取れる。<br>読み筋：▲３三歩成 △同金 ▲６四角打 △５二玉 ▲７一成桂 △１三香<br>この手の後の評価値 +1599、次善の▲３三歩不成（+1317）とは大きな差がある。"],["1n5n1/2k1g3l/l1s2s3/3ppppp1/p8/1G2P2bp/PP1P1RPG1/L5SR1/1SK4N1 b GN3Pbl3p 1","1f","駒得","角を取る",1,["2g2f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２六金</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+950点の得になる。<br>読み筋：▲２六金 △１七歩成 ▲同桂 △同香成 ▲２九飛 △６三金<br>この手の後の評価値 +1527、次善の▲８四桂打（+908）とは大きな差がある。"],["+P3rgsn+P/L3g4/sp+Ppp2p1/p2n1p2k/6p2/P1L+bP+B2N/5P1P1/2pSGR2L/4SK1N1 b gl3p 1","6f","好手","形勢を良くする一手",1,["1a2a"],0,"相手の弱点や働いていない駒に注目。","<b>▲２一と</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲２一と △４八馬 ▲同金 △７六桂 ▲３一と △６八桂成<br>この手の後の評価値 +811、次善の▲５七馬（+528）とは大きな差がある。"],["2s1k1s2/l2r1n2l/N2pgp2b/Pppgp1Pp1/1P3P2p/p3PGRPP/2PP2N1L/L2S5/1NBK1S1G1 b P 1","6c","成り込み","駒を成り込む",1,["3d3c+"],0,"敵陣に入って成れる駒がある。","<b>▲３三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲３三歩成 △９三香 ▲同歩成 △８七桂打 ▲８八角 △８五歩<br>この手の後の評価値 +1893、次善の▲９六香（+1457）とは大きな差がある。"],["2k3s2/l1r1gb1gl/1Pnp1p+Ppn/p3+B4/1pp5P/1s1SPPp2/P2PS2PL/L1R2K1G1/1N2G4 b NP2p 1","7c","両取り","金と銀の両取り",1,["3c4b"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲４二と</b>。金と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲４二と △同銀 ▲７四歩打 △６二金 ▲７三歩成 △同飛<br>この手の後の評価値 +2361、次善の▲８二歩成（+1816）とは大きな差がある。"],["5g1n1/l1gk4l/n2sps1pb/ppPp1p1r1/6P1P/P2B1PG2/LP1PP1GP1/R7L/1N1SK1SN1 b 3P 1","1c","王手〇取り","王手undefined取り",1,["6f8d"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲８四角</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲８四角 △７一玉 ▲７三歩成 △５二金 ▲６三と △同金<br>この手の後の評価値 +1791、次善の▲１四歩（+1525）とは大きな差がある。"],["1ng4n1/l2k3gr/p1ppsp2l/1ps3ppp/P8/1PP1pPP1L/N1SP1G1P1/LK1S5/5GR1b b Bn2p 1","1i","駒得","角を取る",1,["3i1i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１九飛</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+690点の得になる。<br>読み筋：▲１九飛 △１五歩 ▲７五歩 △同銀 ▲８三角打 △９六桂打<br>この手の後の評価値 +441、次善の▲３八金（−39）とは大きな差がある。"],["1ng1kg3/1r1s1s2+B/lppppp2n/p6pp/4+b4/PPP3p2/L1LPPP1PP/1R1SGS2L/1N2K1GN1 b p 1","9c","好手","形勢を良くする一手",1,["1b1c"],0,"相手の弱点や働いていない駒に注目。","<b>▲１三馬</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲１三馬 △１九馬 ▲３四桂打 △１八馬 ▲２四馬 △２七馬<br>この手の後の評価値 +986、次善の▲２六歩（+619）とは大きな差がある。"],["1n1gkg1n1/l5Prl/psP1+B2b1/1p3ps1p/4p4/P3P1RPP/SPKPSP2N/L3G1p1L/1N3G3 b 3P 1","1b","成り込み","駒を成り込む",1,["3b3a+"],0,"敵陣に入って成れる駒がある。","<b>▲３一歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲３一歩成 △５六歩 ▲２一と △７六歩打 ▲同玉 △３二角<br>この手の後の評価値 +1822、次善の▲４四馬（+1067）とは大きな差がある。"],["1+Psgg3G/1+P2+Ln1s1/3kp2pp/pbpp3L1/L5p2/3Ns2nl/R1PPP+p2P/2SG3+b1/+n3K4 b RP3p 1","2f","両取り","金と銀の両取り",1,["5b6a"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲６一成香</b>。金と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲６一成香 △１一銀 ▲５一成香 △３七馬 ▲６九玉 △５九金打<br>この手の後の評価値 +417、次善の▲８三飛打（+96）とは大きな差がある。"],["+L8/2kggs3/+Np2rp3/p1ppp1p1p/g1P4P1/P2NP1P2/L+b1P4S/2RL2SNL/1bSKG2N1 b P3p 1","9e","駒得","金を取る",1,["9f9e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲９五歩</b>。金を取る。読み筋の範囲で、駒の損得はおよそ+340点の得になる。<br>読み筋：▲９五歩 △７八角成 ▲同銀 △９七馬 ▲８二金打 △６一玉<br>この手の後の評価値 +771、次善の▲７四桂（+271）とは大きな差がある。"],["1ng1kg3/1r1s1s2G/lpppp2l1/p2n1p1+B1/2B5p/PPP1P1P2/L1LPGP1PP/R4K1+p+s/NNS6 b p 1","2c","好手","形勢を良くする一手",1,["2d2c"],0,"相手の弱点や働いていない駒に注目。","<b>▲２三馬</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲２三馬 △３八歩打 ▲９五歩 △同歩 ▲同香 △同香<br>この手の後の評価値 +732、次善の▲１五馬（+127）とは大きな差がある。"],["1n+L2k1+P1/6LP+P/p1p1gp3/3pSs3/1p2b1p1P/5G3/1PPP1PP2/N1sG1KS1+r/1NB1+l2N+p b GL2Pr 1","7h","成り込み","駒を成り込む",1,["3b3a+"],0,"敵陣に入って成れる駒がある。","<b>▲３一香成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲３一香成 △５一玉 ▲６一金打 △５二玉 ▲５三銀成 △同玉<br>この手の後の評価値 +2240、次善の▲３一と（+1847）とは大きな差がある。"],["1ns6/l2k1s1gl/2p2p1pp/p2pp1p2/1NP2P3/3r2P1L/PPB4P1/L3g2+n1/SKG1R2N1 b B2Pgs2p 1","6b","両取り","金と金の両取り",1,["7g6f"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲６六角</b>。金と金を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲６六角 △５九金 ▲２二角成 △８八歩打 ▲同玉 △２九成桂<br>この手の後の評価値 +785、次善の▲６三歩打（+401）とは大きな差がある。"],["1ns1g2n1/4g1s1l/l3k2p1/1pp3p1p/p3p1PPP/1Pr1P4/2P2P2N/LBS1GS2L/1NKG5 b B2Pr2p 1","7f","駒得","飛を取る",1,["7g7f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７六歩</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+1040点の得になる。<br>読み筋：▲７六歩 △６八歩打 ▲８三飛打 △６三金 ▲６八金 △６七歩打<br>この手の後の評価値 +2064、次善の▲３一角打（+1696）とは大きな差がある。"],["snk3sn1/l4r3/pppgg2+Pl/4pp2p/5P3/PPPBP3P/6p2/L1KG3RL/1NS3SN1 b B2Pg2p 1","4d","好手","形勢を良くする一手",1,["2c1c"],0,"相手の弱点や働いていない駒に注目。","<b>▲１三と</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲１三と △同桂 ▲２一飛成 △４一金打 ▲４四歩 △６五歩打<br>この手の後の評価値 +1593、次善の▲３二歩打（+1300）とは大きな差がある。"],["1n2k2g1/1r2g2sl/1ps1B1npp/l1p4b1/3p2p2/2P1PP2G/PPNP3PP/L2S1S2L/2G1K1RN1 b 4P 1","2a","成り込み","駒を成り込む",1,["5c7a+"],0,"敵陣に入って成れる駒がある。","<b>▲７一角成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲７一角成 △６六歩 ▲同歩 △４三金 ▲８五桂 △５二飛<br>この手の後の評価値 +1641、次善の▲８六角成（+1150）とは大きな差がある。"],["1n1kg2n1/l2g2s1l/p1s1ppb+R1/1p4p2/P2pP3p/L1p3PP1/NPPR1P3/1S1GK1GS1/B7+p b 2Pnl 1","3b","両取り","角と金の両取り",1,["2c3b"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲３二龍</b>。角と金を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲３二龍 △６六香打 ▲５七飛 △４五桂打 ▲５六飛 △６八香成<br>この手の後の評価値 +957、次善の▲１二龍（+693）とは大きな差がある。"],["r2k2+P2/1+B1s5/lp6p/3Bnpp2/p5P2/1P2PL1+R1/P1gPKPG1P/L4S2L/5+n1N1 b N3P2g2s2p 1","6b","駒得","飛を取る",1,["8b9a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲９一馬</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+970点の得になる。<br>読み筋：▲９一馬 △４八成桂 ▲同玉 △６七金 ▲４四香 △２八歩打<br>この手の後の評価値 +3178、次善の▲８三馬（+2609）とは大きな差がある。"],["1n4k2/l1s1gsg1l/p1r1ppnP1/2pp5/9/2PPP1pSP/P2S1P3/L1KG1R2L/1N2G2N1 b B2Pb3p 1","3b","好手","形勢を良くする一手",1,["P*8b"],0,"相手の弱点や働いていない駒に注目。","<b>▲８二歩打</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲８二歩打 △２五歩打 ▲３五銀 △１三角打 ▲４六銀 △３七歩成<br>この手の後の評価値 +343、次善の▲３四歩打（+18）とは大きな差がある。"],["9/1rg2s3/PNL1k1ppl/3g1p1b1/1N1p2P1p/6l1P/1P1PPP1PL/4KR3/1SB2GS+n1 b GN2Ps3p 1","8b","成り込み","駒を成り込む",1,["7c7b+"],0,"敵陣に入って成れる駒がある。","<b>▲７二香成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲７二香成 △８三飛 ▲７三桂成 △８七飛成 ▲８八銀 △７六龍<br>この手の後の評価値 +956、次善の▲７二香不成（+490）とは大きな差がある。"],["1nsgkgsn+B/6r2/lpp4p1/p2pp1p1p/b4p3/2P1P3P/PP1P1PPPN/L2G3RL/1NSGK1S2 b L 1","1d","両取り","飛と銀の両取り",1,["1a2a"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲２一馬</b>。飛と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲２一馬 △３三飛 ▲５四馬 △８四角 ▲３八飛 △４六歩<br>この手の後の評価値 +2115、次善の▲４四香打（+1402）とは大きな差がある。"],["1nsk2sG1/l1gn2r1l/pppp1g1s1/4p2p1/P1+b+B2p1P/1N2P2P1/LPSP2P2/3G4L/1NK5R b P3p 1","7e","駒得","馬を取る",1,["6e7e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７五馬</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+1140点の得になる。<br>読み筋：▲７五馬 △４二銀 ▲４一角打 △１七歩打 ▲同香 △３三飛<br>この手の後の評価値 +942、次善の▲６六歩（−1145）とは大きな差がある。"],["1nS2g1n1/l3r3l/3p1k2p/pbPgpsp2/6Pp1/1B6P/1GNPPSR2/L1KSG3L/7N1 b 5P2p 1","4c","好手","形勢を良くする一手",1,["P*8b"],0,"相手の弱点や働いていない駒に注目。","<b>▲８二歩打</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲８二歩打 △９三桂 ▲９四香 △３五歩 ▲９三香成 △同香<br>この手の後の評価値 +1577、次善の▲３四歩（+1309）とは大きな差がある。"],["+PR2S1+Nn1/2k5l/p1p1g1pp1/n2p4p/1p2g3G/2P4PP/P2PPPN1L/+r5GS1/2s1SK3 b 2LP2b2p 1","5e","成り込み","駒を成り込む",1,["8a8e+"],0,"敵陣に入って成れる駒がある。","<b>▲８五飛成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲８五飛成 △１五歩 ▲５五龍 △１六歩 ▲６二金打 △８三玉<br>この手の後の評価値 +697、次善の▲８五飛不成（+411）とは大きな差がある。"],["1ns2k3/lr2g2sB/p2p3Nl/1pp1sppp1/1P2p3p/P1P3PG1/2NPPP1PP/N1K3R1L/b2GSG3 b L 1","5d","両取り","銀と銀の両取り",1,["1b2a+"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲２一角成</b>。銀と銀を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲２一角成 △２五歩 ▲同金 △２三銀 ▲５四馬 △３三桂打<br>この手の後の評価値 +1581、次善の▲８四歩（+1185）とは大きな差がある。"],["1nsk2s1G/l1gn2s2/pp1p1p1r1/2p1p3l/P5pGP/1NS1P1PPB/LP1P2l2/1+B1G4p/1NKR5 b P2p 1","2c","駒得","香を取る",1,["1e1d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１四歩</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+820点の得になる。<br>読み筋：▲１四歩 △１九歩成 ▲２四香打 △３三飛 ▲１九飛 △４四歩<br>この手の後の評価値 +2243、次善の▲３五歩（+1609）とは大きな差がある。"],["1n3g1n1/lg1k1rsbl/p1p1sp2p/3Pp1pp1/1p5P1/4PPP2/PPP5P/L3GS1RL/BN1SKG1N1 b P 1","2d","好手","形勢を良くする一手",1,["2e2d"],0,"相手の弱点や働いていない駒に注目。","<b>▲２四歩</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲２四歩 △６六角 ▲２三歩成 △３三桂 ▲３二と △同飛<br>この手の後の評価値 +1569、次善の▲６三歩成（+708）とは大きな差がある。"],["1n2kgsn1/lr5bl/3gsp3/ppppp2PP/9/P3P1PR1/1PPP1PN1L/L1KG1G3/BNS1S4 b 3P 1","1b","成り込み","駒を成り込む",1,["2d2c+"],0,"敵陣に入って成れる駒がある。","<b>▲２三歩成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲２三歩成 △４四角 ▲２七飛 △１四香 ▲同香 △２六歩打<br>この手の後の評価値 +1653、次善の▲４五桂（+1052）とは大きな差がある。"],["3gkg1nb/l2s4l/4s1p2/ppp4Np/2Pp1P3/3PPR3/LP3GP+pP/S1G5L/1N1K3N1 b R2Pbs2p 1","5c","駒得","香を取る",1,["2d1b+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１二桂成</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+390点の得になる。<br>読み筋：▲１二桂成 △３五銀打 ▲１六飛 △１五歩 ▲同飛 △２六銀<br>この手の後の評価値 +606、次善の▲９四香（−412）とは大きな差がある。"],["s1g2g3/l3k3l/ppgr1p3/3p2p1n/4pPspp/1PS3G1n/P2P2PNN/L1SB1K2L/7R1 b BP4p 1","9a","好手","形勢を良くする一手",1,["2g3e"],0,"相手の弱点や働いていない駒に注目。","<b>▲３五桂</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲３五桂 △同歩 ▲同角 △５六桂打 ▲３八玉 △６一金<br>この手の後の評価値 +654、次善の▲５三歩打（+274）とは大きな差がある。"],["+B1sk1g3/l5g1l/1r3pnpp/ppppp1p1s/5P1P1/2P1P3P/PP4P2/L2+b1GS1L/SN2RGKN1 b Np 1","1d","駒得","香を取る",1,["9a9b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲９二馬</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲９二馬 △７三飛 ▲９一馬 △６三飛 ▲７三桂打 △５二玉<br>この手の後の評価値 +1247、次善の▲６四馬（+930）とは大きな差がある。"],["1n7/lgl2G1k1/1pp1p4/b2pPp1Bl/pPP4P1/3P4p/P1NS1PpS1/L3R4/r1GKSG+s2 b Nn3p 1","2b","好手","形勢を良くする一手",1,["4i3i"],0,"相手の弱点や働いていない駒に注目。","<b>▲３九金</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲３九金 △８七桂打 ▲１三銀打 △２三玉 ▲５三歩成 △７九桂成<br>この手の後の評価値 +2105、次善の▲３四桂打（+1697）とは大きな差がある。"],["2sg1n1n+N/1rk1+P4/l2p4p/1p4pPl/pPpS2P2/+b3p4/2gP2lRP/3BKG2L/2S2G1N1 b S3P2p 1","9f","駒得","金を取る",1,["6h7g"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７七角</b>。金を取る。読み筋の範囲で、駒の損得はおよそ+890点の得になる。<br>読み筋：▲７七角 △５七歩成 ▲同金 △５二金 ▲２一成桂 △８七馬<br>この手の後の評価値 +2176、次善の▲７三歩打（+1807）とは大きな差がある。"],["1n4snb/l1s1kgr2/1pppgpp1l/p6p1/4p3P/P1PB1P1P1/LP1PPRP1L/3SK2S1/1N1G1G1N1 b P 1","1c","好手","形勢を良くする一手",1,["1e1d"],0,"相手の弱点や働いていない駒に注目。","<b>▲１四歩</b>。目に見える駒得はないが、局面を大きく良くする一手。<br>読み筋：▲１四歩 △同香 ▲同香 △１三歩打 ▲２三香打 △２二角<br>この手の後の評価値 +1037、次善の▲２五歩（+444）とは大きな差がある。"],["9/1R3glb1/1+Sn1sgnp1/lpk2p2l/p5p1p/1P1p1PPP1/N3G1S2/LBG6/3S1K1N1 b 3Pr4p 1","8d","駒得","歩を取る",1,["8c8d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８四成銀</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲８四成銀 △６三玉 ▲８三飛成 △６四銀 ▲９四龍 △３六歩<br>この手の後の評価値 +1005、次善の▲７二飛成（+709）とは大きな差がある。"],["1n1g1k3/1s1r5/p1p1+Pp1sl/1p4ppp/3p1Pn2/1LP4P1/PP1P1nP1P/L1SR1KS1L/+b1G2G1N1 b GPb 1","4a","駒得","飛を取る",1,["5c6b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６二と</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+480点の得になる。<br>読み筋：▲６二と △同金 ▲２一飛打 △５二玉 ▲８一飛成 △９八馬<br>この手の後の評価値 +2149、次善の▲８九金打（+931）とは大きな差がある。"],["9/1+Rg1k3G/p1p2p1sl/1p4ppp/3p1P2L/S+bP2b1PP/P4nPS1/4S1K1L/2G2G1N1 b N3Prnlp 1","7b","駒得","金を取る",1,["8b7b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７二龍</b>。金を取る。読み筋の範囲で、駒の損得はおよそ+690点の得になる。<br>読み筋：▲７二龍 △４一玉 ▲１三金 △７九角成 ▲２三金 △９七馬<br>この手の後の評価値 +1665、次善の▲６四桂打（+636）とは大きな差がある。"],["7n1/l+R1gk1gbl/pp2sp1ps/2ppps2p/N3b1P2/2P2PG2/PPGPP2PP/L3R3L/1N1S1K1N1 b P 1","4d","駒得","香を取る",1,["8b9b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲９二龍</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+850点の得になる。<br>読み筋：▲９二龍 △７七角成 ▲同桂 △３五銀 ▲同金 △７七角成<br>この手の後の評価値 +1627、次善の▲９一龍（+1338）とは大きな差がある。"],["1n3g1n1/l1k2s1S1/1pn2p2l/3+B1Pg1p/pPp1p2p1/P3s1GP1/3PP1N1P/Lb3R1SL/2+r2GK2 b 4p 1","5e","駒得","銀を取る",1,["5g5f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲５六歩</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+390点の得になる。<br>読み筋：▲５六歩 △６三歩打 ▲７四馬 △３五歩打 ▲４六金 △５六歩<br>この手の後の評価値 +475、次善の▲５四馬（−15）とは大きな差がある。"],["1n1ks4/l2g2P2/1p1p2s2/P3p1l1p/2P6/Kn1P1+b1LP/1P2PP+pPS/4G3l/+pNSGR3+p b RG2Pbn 1","6b","駒得","馬を取る",1,["4g4f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲４六歩</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+1000点の得になる。<br>読み筋：▲４六歩 △８九と ▲８六玉 △７九と ▲同金 △９四香<br>この手の後の評価値 +294、次善の▲５二金打（−899）とは大きな差がある。"],["+P3rgsn+P/L4g2+N/sp+PNp2p1/pl1p1p1k1/2r3p2/P1L1P3L/2S2P1P1/2p2G3/4SK1N1 b BPbg2p 1","4b","駒得","飛を取る",1,["6c5a+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲５一桂成</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+1430点の得になる。<br>読み筋：▲５一桂成 △８五角打 ▲３八玉 △７六角 ▲同銀 △３六香打<br>この手の後の評価値 +2639、次善の▲７五香（+2341）とは大きな差がある。"],["B3ss1n1/lrg1k3l/1pn1pg1pp/3p2p2/p1p2p3/1PP4B1/P2PP1GgP/LSR1S3L/1NK4N1 b 3p 1","2g","駒得","飛を取る",1,["9a8b+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８二角成</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+530点の得になる。<br>読み筋：▲８二角成 △同金 ▲２七金 △５五角打 ▲７五歩 △１九角成<br>この手の後の評価値 +1650、次善の▲８二角不成（+638）とは大きな差がある。"],["1n1g1g1n1/2skl2sl/lr2pp1pp/p1p6/Pp4p2/2P2P3/1P1BP1PPP/3SRKS1L/1+b1G1G1N1 b NPp 1","2b","駒得","馬を取る",1,["6g8i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８九角</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+960点の得になる。<br>読み筋：▲８九角 △９五歩 ▲５五角打 △３三桂 ▲９一角成 △８六歩<br>この手の後の評価値 +1101、次善の▲６三歩打（+749）とは大きな差がある。"],["1n1g1g1n1/2skl3l/l2rpps1p/p1p4p1/Pp2B1p2/2P2P3/1P2P1PPP/3SRKS1L/1B1G1G1NN b Pp 1","3c","駒得","香を取る",1,["8i1b+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１二角成</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+470点の得になる。<br>読み筋：▲１二角成 △６七歩打 ▲６四香打 △同飛 ▲同角 △６八歩成<br>この手の後の評価値 +2541、次善の▲１二角不成（+2271）とは大きな差がある。"],["+P4g3/g2rP4/2n1+L2kp/1n1s2ppg/2Pp1n3/1p6P/R2P2PPB/LGlK1+p2s/1N7 b B2S4Plp 1","8f","駒得","飛を取る",1,["5c6b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６二成香</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+950点の得になる。<br>読み筋：▲６二成香 △９三香打 ▲６三飛打 △３二玉 ▲２三銀打 △４二玉<br>この手の後の評価値 +2486、次善の▲９二と（+1597）とは大きな差がある。"],["g1+PG1g3/l3k1+Nb+R/pp1ppps1l/7p1/L1+b2N1P1/2P2P1K1/PPN3P2/2p1G4/N1S3Rs1 b 3Pslp 1","5b","駒得","馬を取る",1,["7f7e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７五歩</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+700点の得になる。<br>読み筋：▲７五歩 △２五歩 ▲同玉 △３四銀打 ▲３六玉 △４五銀<br>この手の後の評価値 +2548、次善の▲２九飛（+1855）とは大きな差がある。"],["1+P2b2n1/l3s1k1l/p1prGg1pp/3pp1p2/3N3P1/2PPP3P/P4SP1L/L1KS1ps2/B2GG2N1 b NPrp 1","3h","駒得","飛を取る",1,["5c6c"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６三金</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+1060点の得になる。<br>読み筋：▲６三金 △同銀 ▲３八銀 △４九歩成 ▲同銀 △６五歩<br>この手の後の評価値 +1857、次善の▲５二金（+1335）とは大きな差がある。"],["1n1gs2B1/ls2g2kl/p1p3p2/3pPp3/1pP2P1n1/3P2P1p/PPBK1S2P/L3GG2L/1NS1R2+r1 b 2Pnp 1","2e","駒得","龍を取る",1,["5i2i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２九飛</b>。龍を取る。読み筋の範囲で、駒の損得はおよそ+820点の得になる。<br>読み筋：▲２九飛 △５五桂打 ▲５六玉 △２一玉 ▲２五飛 △２二歩打<br>この手の後の評価値 +2277、次善の▲１二角成（+1888）とは大きな差がある。"],["1n2kg3/1g1s1s2G/1pppp4/p2n1p3/8p/PPPLP1PP1/L1LPGPb1P/R4Kp+p+s/NNS6 b Rbl 1","3g","駒得","角を取る",1,["4h3g"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３七玉</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+830点の得になる。<br>読み筋：▲３七玉 △３九歩成 ▲６四香 △同歩 ▲３四桂打 △４三銀<br>この手の後の評価値 +682、次善の▲５八玉（−1068）とは大きな差がある。"],["1n5n1/l2kb1s2/pr1pp1gpl/2p2p3/Pp6p/L1P1PPPb1/NP1P3PN/2G1R1p1L/S1s1K1G2 b GSP 1","2f","駒得","角を取る",1,["2g2f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２六歩</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+720点の得になる。<br>読み筋：▲２六歩 △３九歩成 ▲７九金 △４七金打 ▲７八飛 △１六角<br>この手の後の評価値 +594、次善の▲４八金（+212）とは大きな差がある。"],["1n3g1n1/l2r2k1l/3pgs2p/psP1ppp2/1P5p1/1b3PP1P/1pNPPSR2/L1GSG3L/2K4N1 b B2Pp 1","2e","駒得","銀を取る",1,["8e8d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８四歩</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+570点の得になる。<br>読み筋：▲８四歩 △７六歩打 ▲８七金 △７五角 ▲６五桂 △７七歩成<br>この手の後の評価値 +1277、次善の▲２二歩打（+861）とは大きな差がある。"],["5k1n1/1b1Bssg1l/n+P1ppp1p1/2P3PLp/P2P4P/6pP1/2N1PPN1L/3G1G3/1K1R2r2 b GL3P2s 1","5b","駒得","飛を取る",1,["6i3i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３九飛</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+1120点の得になる。<br>読み筋：▲３九飛 △３七歩成 ▲８一飛打 △６一銀打 ▲３七金 △９七桂打<br>この手の後の評価値 +2455、次善の▲８二と（+1476）とは大きな差がある。"],["3g3bR/S4gk2/p1npppp1l/1pp4p1/P8/4P1P1+p/LPPP1PN2/1B1KGS1s1/1NSG5 b rn2l2p 1","3b","駒得","香を取る",1,["1a1c+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１三飛成</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+730点の得になる。<br>読み筋：▲１三飛成 △６四桂打 ▲１六龍 △５六桂 ▲５七玉 △５五香打<br>この手の後の評価値 +428、次善の▲８三銀成（−204）とは大きな差がある。"],["1nsgks1nb/l4g2+P/p4+rp1p/2ppp4/2Ps5/1p2PS3/P1GP2P1P/L2B1+p1GL/3RK2N1 b NLP2p 1","4h","駒得","とを取る",1,["5i4h"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲４八玉</b>。とを取る。読み筋の範囲で、駒の損得はおよそ+1130点の得になる。<br>読み筋：▲４八玉 △２七歩打 ▲同金 △８七歩成 ▲同金 △８三龍<br>この手の後の評価値 +372。"],["1nsg1sBn+P/l+r1k5/p3L1g1p/3pp4/2p6/3PPS3/P+p4P1P/L2B1K1GL/3R3N1 b S3Pgn3p 1","7e","駒得","桂を取る",1,["1a2a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２一と</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+260点の得になる。<br>読み筋：▲２一と △７二玉 ▲２二角成 △３二金 ▲７三歩打 △同桂<br>この手の後の評価値 +803、次善の▲４二歩打（+144）とは大きな差がある。"],["1n3gk2/lr3g2l/3spp2p/p1p3sN1/1PP2Pp2/+B1NPS2P1/P2SP1G1P/L2KG4/2R3+l+b1 b N2P2p 1","9d","駒得","香を取る",1,["2d1b+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１二桂成</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲１二桂成 △７五歩 ▲８四歩 △３六歩 ▲同金 △５四銀<br>この手の後の評価値 +697、次善の▲３二歩打（+303）とは大きな差がある。"],["n1s1k4/l1r3s1l/n1p1gpP1p/p2g3p1/1p1p5/P1P1PP3/BPbPR1SPP/LS3K2L/3G1G3 b 2N2P 1","7g","駒得","角を取る",1,["8h7g"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７七銀</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+780点の得になる。<br>読み筋：▲７七銀 △４一銀 ▲８一角打 △２二飛 ▲３六角成 △６三金<br>この手の後の評価値 +2407、次善の▲３二歩成（+1883）とは大きな差がある。"],["n3k4/l1r5l/n1p1spPsp/2g4p1/pP1pn1Bn1/P1P1PP3/2SP1RSPP/L7L/3G1KG2 b G3Pb 1","5c","駒得","桂を取る",1,["5f5e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲５五歩</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+280点の得になる。<br>読み筋：▲５五歩 △３七桂成 ▲同飛 △４四銀 ▲２六角 △９六歩<br>この手の後の評価値 +569、次善の▲５七飛（−107）とは大きな差がある。"],["3+Sskn2/1r3b2l/1sPp2n1p/P4psR1/1p4ppP/L2P1P1PB/4p1P2/1KNg2LGL/7N1 b 2G3Pp 1","4b","駒得","銀を取る",1,["2d3d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３四飛</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+440点の得になる。<br>読み筋：▲３四飛 △８一飛 ▲５一成銀 △同飛 ▲９三歩成 △７九銀打<br>この手の後の評価値 +2483、次善の▲９三歩成（+2084）とは大きな差がある。"],["2s1k1s2/l1gr1n1bl/2p1gp3/Pp2p1pp1/1n3P2p/1P2PGRPP/B1PP2N1L/L2S3G1/1NK2S3 b P2p 1","8e","駒得","桂を取る",1,["8f8e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８五歩</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲８五歩 △６四歩打 ▲７五角 △１六歩 ▲同香 △３五歩<br>この手の後の評価値 +350、次善の▲８八角（−319）とは大きな差がある。"],["+Pnsg3n1/4gksbl/2ppppppp/8n/2P1l3l/1P4PPP/1pSPPP3/3KR1G+n1/B2G5 b RSLP 1","1d","駒得","成桂を取る",1,["3h2h"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２八金</b>。成桂を取る。読み筋の範囲で、駒の損得はおよそ+720点の得になる。<br>読み筋：▲２八金 △１六香 ▲８一と △９八歩打 ▲７一と △同金<br>この手の後の評価値 +2004、次善の▲８一と（+1258）とは大きな差がある。"],["6g1+P/4rk1s1/3pgp3/2p4p1/P2s1P1s1/L1N1P1p2/1PPPpGP2/1B3KG2/1N1Sb2+p1 b RN2Pn3lp 1","5i","駒得","角を取る",1,["4h5i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲５九玉</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲５九玉 △１一銀 ▲３六歩 △８二飛 ▲７八銀 △３二玉<br>この手の後の評価値 +541、次善の▲４九玉（−793）とは大きな差がある。"],["2+R6/4rkg+P1/3p1p3/1lp2g1p1/P2s1P1s1/L1N1P1p2/N1PnpGP2/1+l3KG1p/b2S2B+p1 b S2Pnl2p 1","8d","駒得","金を取る",1,["2b3b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３二と</b>。金を取る。読み筋の範囲で、駒の損得はおよそ+600点の得になる。<br>読み筋：▲３二と △５三玉 ▲１七角 △７九桂成 ▲４四歩 △６九成桂<br>この手の後の評価値 +647、次善の▲４四歩（−173）とは大きな差がある。"],["1n2+P2n1/l4Grk1/1sP+RP2bl/p4p2p/9/Pp5Ps/SP1PSP2N/L1K2Gp1L/1N2+p4 b GPbg3p 1","5i","駒得","飛を取る",1,["4b3b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３二金</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+410点の得になる。<br>読み筋：▲３二金 △同角 ▲８六銀 △６九角打 ▲８八玉 △８七角成<br>この手の後の評価値 +372、次善の▲５二歩成（+89）とは大きな差がある。"],["1ng1k1s1+B/lr1sg3l/1p1p1p1pn/p1P1p1p1p/8b/P5P2/1P1PPP1PP/LSRK4L/1N1G1GSN1 b P 1","9b","駒得","香を取る",1,["1a1b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１二馬</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+650点の得になる。<br>読み筋：▲１二馬 △２五桂 ▲２六香打 △３三角 ▲２五香 △５五角<br>この手の後の評価値 +1918、次善の▲４八銀（+1329）とは大きな差がある。"],["4k1+Nn1/4g3l/1pr2G+b1p/l3s1pp1/1Pp6/p1P1l1PP1/P2PPPN1P/5G2L/2K1G1R2 b 2SN3Pbs 1","3c","駒得","馬を取る",1,["4c3c"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３三金</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+600点の得になる。<br>読み筋：▲３三金 △同桂 ▲６四銀打 △４三飛 ▲９六歩 △４二銀打<br>この手の後の評価値 +1056、次善の▲５二金（+598）とは大きな差がある。"],["1ns2s1n1/l2r1g1b1/pNppk2p1/3g1pp2/1p2pP2l/P1PP2P1P/BP1G3P1/L1G2S3/2S1K1RN1 b L2p 1","4d","駒得","銀を取る",1,["8c7a+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７一桂成</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+930点の得になる。<br>読み筋：▲７一桂成 △１六香 ▲６五歩 △８二飛 ▲６四歩 △１八香成<br>この手の後の評価値 +1752、次善の▲６五歩（+831）とは大きな差がある。"],["+B4gsn1/3g2k1+L/Npn1ppp1b/1s1L3p1/p1p2P1P1/1P2P1P2/5GR2/+l3Gl3/3KS2N1 b R3Ps3p 1","1c","駒得","角を取る",1,["1b1c"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１三成香</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+730点の得になる。<br>読み筋：▲１三成香 △同桂 ▲６二香成 △２五桂 ▲１四角打 △２三銀打<br>この手の後の評価値 +2986、次善の▲６二香成（+2699）とは大きな差がある。"],["2s1s1gn1/l3k3l/pr1pgp1pp/1pp1p1p2/P2nbP1P1/1P1PR3P/N1P1P1P1N/L1G1GS2L/B1S1K4 b - 1","8c","駒得","桂を取る",1,["6f6e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６五歩</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲６五歩 △２二角 ▲３六飛 △９四歩 ▲３四飛 △９五歩<br>この手の後の評価値 +895、次善の▲６七金（+562）とは大きな差がある。"],["1nsgg2n1/1r2k1sb1/lpp1ppp1N/p6pp/3p2P2/P3P3P/1PPP1P1P1/LB4R1L/1NSGKGS2 b L 1","3b","駒得","桂を取る",1,["1c2a+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２一桂成</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲２一桂成 △１三角 ▲１一成桂 △２二角 ▲１二成桂 △３一角<br>この手の後の評価値 +1549、次善の▲６四香打（+404）とは大きな差がある。"],["2s2+N1nb/l1rkg1G1l/1p1p2p2/p3pP1pp/2p6/PP4PPP/2PPP3L/1lS1K2+b1/4GG3 b RSNPsn 1","1a","駒得","桂を取る",1,["3b2a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２一金</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+590点の得になる。<br>読み筋：▲２一金 △２二銀打 ▲１一金 △同銀 ▲８一銀打 △８二飛<br>この手の後の評価値 +384、次善の▲４三歩成（−335）とは大きな差がある。"],["2s2+N2G/l1rkg3l/1p1p2p1s/p3pP1pp/2p6/PP1s2PPP/nSPPP1+b1L/1l2K4/4GG3 b RB2NP 1","9g","駒得","銀を取る",1,["6g6f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６六歩</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+660点の得になる。<br>読み筋：▲６六歩 △３六馬 ▲４七角打 △同馬 ▲同玉 △６七角打<br>この手の後の評価値 +1566、次善の▲４三歩成（+1164）とは大きな差がある。"],["1n2k1g2/1r2g2sl/1p+N4pp/l1p4b1/3p2pn1/2P1PP2P/PP1P2P2/L2S1Sg1L/2G1K1RN1 b BS2P2p 1","2e","駒得","飛を取る",1,["7c8b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８二成桂</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+540点の得になる。<br>読み筋：▲８二成桂 △３九金 ▲同銀 △６一飛打 ▲７二成桂 △５八歩打<br>この手の後の評価値 +1805、次善の▲３八飛（+1024）とは大きな差がある。"],["9/5s3/PN2k1ppl/3g1p1bl/1N4P1p/1P1p2l1P/B2PPP1PL/2+r1KR3/1S3GS+n1 b 2G2Psn3p 1","7h","駒得","龍を取る",1,["8i7h"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７八銀</b>。龍を取る。読み筋の範囲で、駒の損得はおよそ+730点の得になる。<br>読み筋：▲７八銀 △３九香成 ▲９二歩成 △４九成香 ▲同飛 △３七桂打<br>この手の後の評価値 +1429、次善の▲５九玉（−1412）とは大きな差がある。"],["1nsgk1sn1/l3g2+bl/1ppp1p1pp/6p2/pRP1p1b1P/9/PP1PPPPPL/L2G1K1R1/1NS2GSN1 b - 1","9b","駒得","歩を取る",1,["8e8c+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８三飛成</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲８三飛成 △５六歩 ▲８一龍 △９九馬 ▲３六歩 △５七歩成<br>この手の後の評価値 +1101、次善の▲８三飛不成（+297）とは大きな差がある。"],["1n2k1sn1/2sgg3l/l1pp1p1pp/1+R4p2/2P3b1P/pP2P1P2/P2PGP1PL/L+b3K2R/1NS1G1SN1 b 2P 1","8h","駒得","馬を取る",1,["7i8h"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８八銀</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+1180点の得になる。<br>読み筋：▲８八銀 △４四角 ▲６六歩 △９七歩成 ▲同香 △同香成<br>この手の後の評価値 +2753、次善の▲３五歩（+1382）とは大きな差がある。"],["1n2k2n1/2sgg1s1l/l1pp1p1pp/4+Rbp2/2P5P/pP2P1P1b/P2PGPKPL/LS6R/1N2G1SN1 b 2P 1","1f","駒得","角を取る",1,["1g1f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１六香</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+1360点の得になる。<br>読み筋：▲１六香 △９七歩成 ▲同桂 △同香成 ▲同香 △２五桂打<br>この手の後の評価値 +2543、次善の▲４四龍（+1972）とは大きな差がある。"],["1nskg1s1b/l3rg2l/p1ppppn1p/1p5p1/P5p2/1P5PP/L1PPPP2N/1B1SGS2L/1N2KGR2 b p 1","4b","駒得","歩を取る",1,["3i3e"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３五飛</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+270点の得になる。<br>読み筋：▲３五飛 △３四歩打 ▲同飛 △５四歩 ▲２四飛 △２二銀<br>この手の後の評価値 +498、次善の▲５六歩（+97）とは大きな差がある。"],["1n3g3/2+P2ks2/1p6l/L2+Rp1ppp/2p4b1/4PPPlP/1PPPS1R2/3S1KG+b1/2+l1S4 b 2NP2gn3p 1","5d","駒得","馬を取る",1,["3h2h"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２八金</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+510点の得になる。<br>読み筋：▲２八金 △同香成 ▲５三角打 △３三玉 ▲４五桂打 △２二玉<br>この手の後の評価値 +1207、次善の▲７九銀（+651）とは大きな差がある。"],["1n2kgsn1/l6rl/3gsp1+P1/p2pp3P/1pp3b2/P3P1P1R/LPPP1PN1L/2KG1G3/BNS1S4 b 2Pp 1","2b","駒得","飛を取る",1,["2c2b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２二と</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+950点の得になる。<br>読み筋：▲２二と △１五歩打 ▲７一飛打 △６二玉 ▲４一飛成 △６八角成<br>この手の後の評価値 +3412、次善の▲３五歩（+1945）とは大きな差がある。"],["5gsn1/ls1rkbg1l/pp2pp3/3p2p1p/1PpnPP1N1/P5P1P/L1PP3PL/4SS3/1NBGKG1R1 b P 1","6e","駒得","駒得を狙う",1,["6g6f"],0,"数手先に駒得できる筋がある。","<b>▲６六歩</b>。数手後に駒得できる。読み筋の範囲で、駒の損得はおよそ+410点。<br>読み筋：▲６六歩 △７七桂成 ▲同桂 △７三銀 ▲２四桂打 △２二金<br>この手の後の評価値 +801、次善の▲２六歩（+403）とは大きな差がある。"],["1n1gkgsn1/lr1s3bl/p1pp1p3/1p2p1ppp/7P1/1P2PP3/P1PP2P1P/LB1S3RL/1N1GKGSN1 b - 1","5d","駒得","歩を取る",1,["2e2d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２四歩</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲２四歩 △１三角 ▲２三歩成 △４六角 ▲１二と △３三桂<br>この手の後の評価値 +1237、次善の▲４八銀（+435）とは大きな差がある。"],["1nsgkg1n1/l4s1bl/p1pR1pp2/4p3p/3p3p1/P1P1P2P1/2BPSPP1P/+pS4R1L/1NG1K1G+l1 b np 1","1d","駒得","成香を取る",1,["3i2i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２九金</b>。成香を取る。読み筋の範囲で、駒の損得はおよそ+540点の得になる。<br>読み筋：▲２九金 △８八と ▲同飛 △１三角 ▲４六銀 △８七歩打<br>この手の後の評価値 +377、次善の▲６五飛成（−459）とは大きな差がある。"],["G6n1/3k2s2/pp1ppp1pl/3r5/G1bP1PPP1/PP6p/L2lPGS2/2N1GK3/2Sr2SN+n b B2Pl2p 1","1i","駒得","飛を取る",1,["6e6d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲６四歩</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+600点の得になる。<br>読み筋：▲６四歩 △７九飛成 ▲４二飛打 △５二銀打 ▲３二飛成 △２九成桂<br>この手の後の評価値 +1845、次善の▲８五金（+435）とは大きな差がある。"],["1ns1kB+Ps+P/nr7/lp3p1p+b/p1PPp1G2/n1p2P3/1P2P2G1/P1N2S1P1/Ls1G5/4K4 b RPg2l2p 1","1c","駒得","銀を取る",1,["1a2a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２一と</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+570点の得になる。<br>読み筋：▲２一と △７九銀不成 ▲６九金 △８七桂成 ▲２三金 △５七香打<br>この手の後の評価値 +677、次善の▲７三歩成（+369）とは大きな差がある。"],["1ns1kg1n+P/l1gr2s2/ppp2pppl/3p4p/P1P3b2/4p2PL/1PBPPPPR1/L1S1GS3/1N1G2KN1 b - 1","4a","駒得","桂を取る",1,["1a2a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２一と</b>。桂を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲２一と △５七歩不成 ▲同銀 △５二飛 ▲４六銀 △４四角<br>この手の後の評価値 +1145、次善の▲５六歩（+749）とは大きな差がある。"],["+L+R5n1/3ggs1sl/plp5p/Nk1pp1pp1/5p1P1/BPP3Pb1/G4P1+nP/2K4SL/2R1G4 b 2Psn2p 1","2f","駒得","成桂を取る",1,["2h2g"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２七銀</b>。成桂を取る。読み筋の範囲で、駒の損得はおよそ+320点の得になる。<br>読み筋：▲２七銀 △３七角成 ▲２一龍 △２七馬 ▲１二龍 △９四歩<br>この手の後の評価値 +1291、次善の▲５二角成（+815）とは大きな差がある。"],["3g2gn1/l5s1l/p2skp1p1/1p2p1p1P/9/PP2P1P2/L2P3PN/3SS3L/1rGK3+b1 b RBN2Pgn3p 1","6c","駒得","飛を取る",1,["7i8i"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８九金</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+650点の得になる。<br>読み筋：▲８九金 △１八馬 ▲９一飛打 △５二銀 ▲２六角打 △３五桂打<br>この手の後の評価値 +505、次善の▲６五桂打（+142）とは大きな差がある。"],["1nr1kg1n1/2+Ps2sbl/lp2gppp1/p2pp3p/7P1/P1p1P4/1P1P1PP1P/LBGSG1R1L/1N1K2SN1 b - 1","9d","駒得","飛を取る",1,["7b7a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７一と</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+430点の得になる。<br>読み筋：▲７一と △同銀 ▲９一飛打 △７二銀 ▲９二飛成 △６二玉<br>この手の後の評価値 +2100、次善の▲８二と（+936）とは大きな差がある。"],["1n1gk4/lr1sg1sbl/ppp2pnp1/3np4/3p5/2P2PP1L/PP1PP2P1/LBGRK4/1NSGS4 b 2Pp 1","6d","駒得","香を取る",1,["1f1b+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１二香成</b>。香を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲１二香成 △３一角 ▲７七金 △１七歩打 ▲１四歩打 △１八歩成<br>この手の後の評価値 +287、次善の▲１三歩打（−1057）とは大きな差がある。"],["1n7/l2skgg1l/pp1p4n/2p1sp1pB/1P1N4p/P1PPPb1R1/5PPPP/L2G1SGRL/5K1N1 b s2p 1","4f","駒得","角を取る",1,["4g4f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲４六歩</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+310点の得になる。<br>読み筋：▲４六歩 △２五銀打 ▲同飛 △同歩 ▲３四角打 △４三金<br>この手の後の評価値 +2303、次善の▲５三桂成（+1843）とは大きな差がある。"],["1nsg1g3/3k1r1s1/l8/ppppp2+Bp/2P1Pp3/1b3P2P/PP1P2pPN/LS2G2RL/1N1+lGKSN1 b 2p 1","6i","駒得","角を取る",1,["8g8f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８六歩</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+740点の得になる。<br>読み筋：▲８六歩 △５九成香 ▲同金 △４三飛 ▲３四馬 △４二飛<br>この手の後の評価値 +2114、次善の▲３五馬（+1843）とは大きな差がある。"],["1ns2k3/lr2g2s1/p2p3Nl/1pp2ppp1/1l2p3p/PPP3PG1/b1NPPP1PP/N+bK3R1L/2SGSG3 b - 1","8h","駒得","馬を取る",1,["7i8h"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲８八銀</b>。馬を取る。読み筋の範囲で、駒の損得はおよそ+1570点の得になる。<br>読み筋：▲８八銀 △同角成 ▲同玉 △２三銀 ▲８五歩 △２五銀打<br>この手の後の評価値 +1768、次善の▲６八玉（−1507）とは大きな差がある。"],["2s1k1sn1/l1g5r/2P2p2l/Ppp2Pppp/2g2B1PP/3pPgS2/L1N1K1P1N/1BS1p2RL/4G4 b N3p 1","4f","駒得","金を取る",1,["5g4f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲４六玉</b>。金を取る。読み筋の範囲で、駒の損得はおよそ+450点の得になる。<br>読み筋：▲４六玉 △５九歩成 ▲７二歩成 △４四歩 ▲６一金打 △４一玉<br>この手の後の評価値 +1989、次善の▲５八玉（+843）とは大きな差がある。"],["1+Br1g1sn1/l2gk3l/p2p1p1p1/2p1psp1p/2P6/P3P2P1/1PNP1P1bP/LR1G1S2L/2SGK2N1 b NPp 1","7a","駒得","飛を取る",1,["8a7a"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲７一馬</b>。飛を取る。読み筋の範囲で、駒の損得はおよそ+650点の得になる。<br>読み筋：▲７一馬 △６一金 ▲８一馬 △１八角成 ▲３七桂 △３五香打<br>この手の後の評価値 +2540、次善の▲６四桂打（+1064）とは大きな差がある。"],["1n1kg2nb/l2s1sg2/pr2pp1p+P/1pp3p2/2Pp4L/1P4P2/P1NPPP1P1/LB2G1GR1/2S1KS1N1 b LP 1","1a","駒得","歩を取る",1,["1c2c"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２三と</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+270点の得になる。<br>読み筋：▲２三と △７七角成 ▲同角 △２三金 ▲１一角成 △１六桂打<br>この手の後の評価値 +2192、次善の▲１八飛（+1468）とは大きな差がある。"],["1n1sk4/1rg1g1b+Bl/1p1ppp2p/p1p4p1/l4np2/2P3PP1/+pP1PP2RP/2GS1S2L/1N2GK1N1 b Slp 1","3b","駒得","角を取る",1,["2b3b"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲３二馬</b>。角を取る。読み筋の範囲で、駒の損得はおよそ+800点の得になる。<br>読み筋：▲３二馬 △４六香打 ▲２三馬 △４八香成 ▲同玉 △９八銀打<br>この手の後の評価値 +1577、次善の▲３五歩（+665）とは大きな差がある。"],["1s3g3/l2g1k2l/n1p1rps1n/3pp1ppp/5PPnb/P1P+BP4/1P1PSG1PP/L2K2SRL/2G4N1 b 2P 1","8a","駒得","駒得を狙う",2,["1g1f"],0,"数手先に駒得できる筋がある。","<b>▲１六歩</b>。数手後に駒得できる。読み筋の範囲で、駒の損得はおよそ+960点。<br>読み筋：▲１六歩 △３七角成 ▲同桂 △３五歩 ▲２五桂 △同桂<br>この手の後の評価値 +1605、次善の▲３四歩（+877）とは大きな差がある。"],["3g5/l1s6/npp1g2+B1/P1k4n1/1P2ppp1p/R1PR1+b3/N7P/L3G3L/2SGK1S+l1 b 2Psn6p 1","9c","詰み","3手詰",2,["7f7e"],1,"王手の連続で玉を追い詰められる。","<b>▲７五歩</b>。3手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲７五歩 △同玉 ▲７六飛まで<br>この手の後の評価値 詰み。"],["1n3k3/1s4sP+P/lp1Spp2p/1g1P2p2/p3g4/2G3l1P/PP3PPSn/L4GK2/1N1R3N1 b RLP2b3p 1","9e","王手〇取り","王手undefined取り",2,["R*6a"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲６一飛打</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲６一飛打 △５一角打 ▲６二銀成 △３七香成 ▲同金 △２九桂成<br>この手の後の評価値 +2415、次善の▲１七桂（+1876）とは大きな差がある。"],["1n1k2s1+B/l3gr2b/1p1sp2g1/p1pp2p1p/s4plP1/NPP6/P1N1PP2P/L1S1GG2L/5K1N1 b R3p 1","4b","両取り","金と金の両取り",2,["R*8b"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲８二飛打</b>。金と金を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲８二飛打 △７二銀 ▲９二飛成 △２八歩打 ▲４四香打 △３九香成<br>この手の後の評価値 +594、次善の▲８七銀（−288）とは大きな差がある。"],["7+L1/1k4g2/1pg1pp1pl/p2p1sp2/n3P1n1p/2S1NPN2/PP1PSSP+b1/LR3K2+b/3GGR3 b LP3p 1","7c","受け","相手の狙いを防ぐ",2,["4g3h"],0,"放っておくと相手に大きな狙いがある。先に防ごう。","<b>▲３八銀</b>。何もしないと相手に大きな狙いがある（放置すると評価値はおよそ+683。たとえば△４七桂）。この手でその狙いを防ぐ。<br>読み筋：▲３八銀 △２八馬 ▲４四桂 △同歩 ▲３九銀打<br>この手の後の評価値 +1679、次善の▲４四桂（+1256）とは大きな差がある。"],["2+P1r1s2/S3g1P2/2p3npp/1k1p+Bpp2/1p1n4l/1P1n5/L1SPPP1PP/+rBG1K1+l+pL/3G4G b Sn2p 1","6f","詰めろ","詰めろをかける",2,["7g6f"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲６六銀</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲６六銀 △８六歩 ▲６四馬 △５七桂成 ▲同銀 △３二銀<br>この手の後の評価値 +1087、次善の▲６六歩（+528）とは大きな差がある。"],["1s7/l2gg1k1l/n1p1rp2n/3pp1Ppp/5P2b/P1P1P3s/1P1PSGSPP/L2K2R1L/2G3bN1 b N3P 1","5b","駒得","銀を取る",2,["1g1f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲１六歩</b>。銀を取る。読み筋の範囲で、駒の損得はおよそ+570点の得になる。<br>読み筋：▲１六歩 △５七角成 ▲同金 △４九銀打 ▲４八飛 △３七角成<br>この手の後の評価値 +1482、次善の▲３三歩成（+617）とは大きな差がある。"],["2r1k4/l1Gg5/p1npS2+S1/1pp1L1p2/6Ppp/1Pn+BSg2L/P1K3RP1/L3G4/1+n7 b N2Pbs5p 1","5a","詰み","3手詰",2,["7b6b"],1,"王手の連続で玉を追い詰められる。","<b>▲６二金</b>。3手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲６二金 △４一玉 ▲４二金打まで<br>この手の後の評価値 詰み。"],["3r2s2/lsG2g1bl/8p/p2p1pk2/Pp4NNP/3PPPpPL/LPK1S4/1B1G3p1/1N1+p1R3 b S2Pgnp 1","3d","王手〇取り","王手角取り",2,["S*2c"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲２三銀打</b>。王手をかけながら角も狙う手。相手は玉を逃がすしかなく、次に角が取れる。<br>読み筋：▲２三銀打 △３五玉 ▲６一金 △６八と ▲同銀 △７六歩打<br>この手の後の評価値 +1615、次善の▲６一金（+1324）とは大きな差がある。"],["1n4ks1/1rs5l/g1p1rp1pp/1B2p2g1/3Ln3P/1PPPPP3/3S2S1L/L3G2K1/1N5N1 b BG3P4p 1","9c","両取り","飛と飛の両取り",2,["8d7e"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲７五角</b>。飛と飛を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲７五角 △６七桂成 ▲５三角成 △４二銀打 ▲９三香成 △同桂<br>この手の後の評価値 +2091、次善の▲６四角打（+1509）とは大きな差がある。"],["1n1g1k1+P1/r4g3/pSBpppp1l/1pp2N1p1/P8/4P1P1+p/LPPP1PN2/1B1KGS1s1/1NSG5 b r2lp 1","4a","詰めろ","詰めろをかける",2,["8c9b+"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲９二銀成</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲９二銀成 △４四歩 ▲８一成銀 △２七と ▲８二角成 △１七香成<br>この手の後の評価値 +2613、次善の▲８四角成（+1049）とは大きな差がある。"],["1ng4n1/l2k3r1/2pp1p2l/pps1B1ppp/P8/nPP2PP1L/N1SP1G1P1/L1s+p2G2/K4R3 b GSb2p 1","2b","駒得","歩を取る",2,["5d4c+"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲４三角成</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+610点の得になる。<br>読み筋：▲４三角成 △３三角打 ▲４四銀打 △５一角 ▲６八銀 △８七銀成<br>この手の後の評価値 +349、次善の▲４三角不成（−230）とは大きな差がある。"],["1n1k5/b2g1b2l/lp+Rppp1sp/p1l3p2/6G2/5P1P1/PPPPPGP1P/L+nSG1K3/1N6+p b RSNPs 1","6a","詰み","3手詰",2,["R*7a"],1,"王手の連続で玉を追い詰められる。","<b>▲７一飛打</b>。3手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲７一飛打 △５二玉 ▲４一銀打まで<br>この手の後の評価値 詰み。"],["1g2g2n1/ls3ks+B1/1p3p1Np/2pp2p2/pP4PG1/2P6/P5L1P/L1G1S3L/1N1K3NS b R2Prb4p 1","5a","王手〇取り","王手銀取り",2,["2b3a"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲３一馬</b>。王手をかけながら銀も狙う手。相手は玉を逃がすしかなく、次に銀が取れる。<br>読み筋：▲３一馬 △５二玉 ▲３二馬 △３九飛打 ▲５九飛打 △同飛成<br>この手の後の評価値 +2136、次善の▲３一桂成（+1399）とは大きな差がある。"],["2k1g2n1/7b1/2r3g1s/pp1pb1ppl/P1PPp2P1/1P2PpP1P/N1N2P3/LG2KRS1L/2S1G2N1 b SLPp 1","7c","両取り","飛と飛の両取り",2,["L*7d"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲７四香打</b>。飛と飛を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲７四香打 △同飛 ▲同歩 △３六角 ▲９一飛打 △８一香打<br>この手の後の評価値 +2018、次善の▲１五歩（+1083）とは大きな差がある。"],["1n2gks2/lns2lr2/s1p2p1+Bl/4pnp1p/1p5n1/P1P1PPP1P/3PR2P1/3SG1K2/5G2+l b BG3Pp 1","3b","駒得","駒得を狙う",2,["G*3c"],0,"数手先に駒得できる筋がある。","<b>▲３三金打</b>。数手後に駒得できる。読み筋の範囲で、駒の損得はおよそ+620点。<br>読み筋：▲３三金打 △１五歩 ▲３二金 △同銀 ▲１三馬 △１六歩<br>この手の後の評価値 +1034、次善の▲４五歩（+337）とは大きな差がある。"],["3gsgk1+B/l1r2s3/pp1pppn2/1gp3ppp/P3P2L1/1PPP3P1/Ln3PP1P/1S1G3RL/3K2SN1 b Bn 1","2d","詰み","3手詰",2,["B*1c"],1,"王手の連続で玉を追い詰められる。","<b>▲１三角打</b>。3手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲１三角打 △３二玉 ▲２二馬まで<br>この手の後の評価値 詰み。"],["1n1s3nb/l3g3l/pr1Pgp1pk/1Lp1p1p1p/1pB1P3s/PPP3PP1/L4PG1P/2S1R1KS1/1N1G4+n b P 1","7d","王手〇取り","王手undefined取り",2,["7e5g"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲５七角</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲５七角 △２四銀 ▲８三香成 △１八成桂 ▲９二成香 △２八成桂<br>この手の後の評価値 +2232、次善の▲８三香不成（+1158）とは大きな差がある。"],["2k1g2n1/7b1/r1+P3g2/p3b1pps/Pp1pp2P1/1P1sPpP2/2N2P3/LGL1KRS1L/2S1G2N1 b LPn3p 1","8e","両取り","飛と飛の両取り",2,["7g8e"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲８五桂</b>。飛と飛を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲８五桂 △４七歩成 ▲同飛 △９一飛 ▲１四香 △３六角<br>この手の後の評価値 +837、次善の▲１四香（+378）とは大きな差がある。"],["3gg2nb/l2ssk2l/4r1p2/ppp5p/2PpBP3/3PPR1p1/LP3GPSP/2G5L/SN1K3N1 b N2P2p 1","2f","駒得","歩を取る",2,["4f2f"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２六飛</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+350点の得になる。<br>読み筋：▲２六飛 △２五歩打 ▲同飛 △５五飛 ▲同歩 △３二角打<br>この手の後の評価値 +1559、次善の▲１六銀（+853）とは大きな差がある。"],["G3s1k1+P/rlLn5/lp5G1/2p2ppp1/1ng4n1/5PP2/1PPPRK1PL/p1S2GS2/2S4bN b 5Pb 1","3a","詰み","3手詰",2,["5g5a+"],1,"王手の連続で玉を追い詰められる。","<b>▲５一飛成</b>。3手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲５一飛成 △４一角打 ▲４二銀打まで<br>この手の後の評価値 詰み。"],["2r1g1s1+B/l2g2k2/p1nppp1Np/1pp3p1P/6Pp1/1PP1+b3L/Pn2S1RP1/L3G4/1NG1K4 b L2s3p 1","5f","王手〇取り","王手undefined取り",2,["L*3c"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲３三香打</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲３三香打 △４二玉 ▲５六銀<br>この手の後の評価値 +688、次善の▲５六銀（+99）とは大きな差がある。"],["2k1g4/+N1b4b1/6g1n/p1R3pp1/P2pp2s1/1P1sP1P2/L1p2S3/1+nLSKR2L/4G2N1 b L3Pg5p 1","8h","両取り","角と角の両取り",2,["L*7c"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲７三香打</b>。角と角を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲７三香打 △５七金打 ▲同銀 △同銀成 ▲同玉 △５六歩<br>この手の後の評価値 +1177、次善の▲１三香成（+807）とは大きな差がある。"],["1ns2g1n1/lr2k1g1l/5pspp/ppppp1p2/5P1b1/2P1P3P/PP4PP1/LBS2GS1L/1N2RGKN1 b p 1","7a","駒得","駒得を狙う",2,["2g2f"],0,"数手先に駒得できる筋がある。","<b>▲２六歩</b>。数手後に駒得できる。読み筋の範囲で、駒の損得はおよそ+690点。<br>読み筋：▲２六歩 △１四角 ▲１五歩 △４二金 ▲１四歩 △同歩<br>この手の後の評価値 +1371、次善の▲５五歩（+118）とは大きな差がある。"],["1n1g1g1n1/2skl3+B/l2rpps1p/P6p1/1p2BPp2/2pp5/1P2P1PPP/3SRKS1L/3G1G1NN b 2Plp 1","7f","両取り","飛と飛の両取り",2,["P*6d"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲６四歩打</b>。飛と飛を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲６四歩打 △７三飛 ▲９三歩成 △６七歩成 ▲同銀 △７七歩成<br>この手の後の評価値 +2077、次善の▲９三歩成（+1784）とは大きな差がある。"],["1n2k1s2/2s1g4/l1p1gp2p/1r1p3p1/p1L3Pn1/Pb+B1PP1PP/L1PP5/3SGG1RL/1N1K1S1N1 b 3Pp 1","8d","駒得","駒得を狙う",2,["P*8e"],0,"数手先に駒得できる筋がある。","<b>▲８五歩打</b>。数手後に駒得できる。読み筋の範囲で、駒の損得はおよそ+750点。<br>読み筋：▲８五歩打 △９七角成 ▲同桂 △８三飛 ▲４五角打 △６一銀<br>この手の後の評価値 +2846、次善の▲２五歩（+1829）とは大きな差がある。"],["1ng1k1bn1/lr1sg1s1l/pp2ppp1p/2p4p1/3p3P1/2PP5/PPS1PPP1P/LB3G1RL/1N1GK1SN1 b - 1","6e","駒得","歩を取る",2,["2e2d"],0,"取れる駒がある。取り返されても得かどうかを確かめよう。","<b>▲２四歩</b>。歩を取る。読み筋の範囲で、駒の損得はおよそ+300点の得になる。<br>読み筋：▲２四歩 △６六歩 ▲２三歩成 △４一銀 ▲１二と △６七歩成<br>この手の後の評価値 +893、次善の▲６五歩（+253）とは大きな差がある。"],["2+L1kgs2/l7l/5r2n/p1n+BP1p2/P1PP3pr/3G2K1+p/1+b2p1PP1/2S1GpS1L/9 b GS6P2n 1","4c","詰み","5手詰",3,["G*6a"],1,"王手の連続で玉を追い詰められる。","<b>▲６一金打</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲６一金打 △５二玉 ▲５三銀打 △同飛 ▲同馬まで<br>この手の後の評価値 詰み。"],["1n1k1g1n1/lR2gs1bl/pp3pspp/2ppp4/4b1P2/2P2P3/PPGPPG1PP/L1S4RL/1N3K1N1 b SP 1","6a","王手〇取り","王手undefined取り",3,["8b8a"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲８一飛不成</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲８一飛不成 △６二玉 ▲４一飛不成 △７五歩 ▲２一飛成 △７六歩<br>この手の後の評価値 +3319、次善の▲８一飛成（+2914）とは大きな差がある。"],["1n2kg1n1/l1+P1lgnb1/pp1ppps2/7p1/9/3PPP1P1/PPN3P2/2S1GGKSR/+b1S1R4 b L3Plp 1","2b","成り込み","駒を成り込む",3,["1h1b+"],0,"敵陣に入って成れる駒がある。","<b>▲１二飛成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲１二飛成 △７五香打 ▲２三香打 △１一歩打 ▲２一龍<br>この手の後の評価値 +1700、次善の▲８一と（+1273）とは大きな差がある。"],["S2g3bR/5gk2/p1npppp1l/Ppp4p1/4B3r/2P1P1PN+p/LPlPSPN2/3KG4/1NSG4+s b L2p 1","7g","詰めろ","詰めろをかける",3,["L*2c"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲２三香打</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲２三香打 △４一玉 ▲７七桂 △５五飛 ▲同歩 △２六と<br>この手の後の評価値 +3141、次善の▲７七桂（+1671）とは大きな差がある。"],["3r2gn1/l3k1s1l/ps2gpppb/1pP1p3p/2B5P/PPn1P1P2/n2P1P1PN/L1G1G2RL/2SKS4 b Pp 1","5b","両取り","角と角の両取り",3,["1e1d"],0,"1手で2つの駒を同時に狙える場所がある。","<b>▲１四歩</b>。角と角を同時に狙う両取り。相手は片方しか逃がせない。<br>読み筋：▲１四歩 △２四角 ▲９七香 △７四銀 ▲８四角 △１四香<br>この手の後の評価値 +274、次善の▲９七香（−26）とは大きな差がある。"],["4Rs1nb/2s2g2l/+B2p2np1/1p1k1gp1p/l1pNpp1P1/2G5P/p2SPPP1L/1R3SG2/4K2N1 b Pl3p 1","9g","詰み","5手詰",3,["8h8d"],1,"王手の連続で玉を追い詰められる。","<b>▲８四飛</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲８四飛 △７四香打 ▲８二馬 △７三銀 ▲同馬まで<br>この手の後の評価値 詰み。"],["1+N1g1g2+B/6ks1/p2ps2p1/4p1pbp/4P1PN1/7PP/+p1Pn1R2L/1+lpG2GL1/1+p1S1KSN1 b Lr4p 1","3b","王手〇取り","王手undefined取り",3,["L*3c"],0,"王手をかけながら、もう1つの駒も狙える。","<b>▲３三香打</b>。王手をかけながらundefinedも狙う手。相手は玉を逃がすしかなく、次にundefinedが取れる。<br>読み筋：▲３三香打 △同銀 ▲同桂成 △同角 ▲同馬 △同玉<br>この手の後の評価値 +681、次善の▲２二馬（+404）とは大きな差がある。"],["2k3g2/1rsg4l/l1Pppsb+Rp/1p3p3/2p3p2/1PnPPP2P/L3NS3/1BS1G3L/1NGK4N b 3P2p 1","9c","成り込み","駒を成り込む",3,["9g9c+"],0,"敵陣に入って成れる駒がある。","<b>▲９三香成</b>。駒を成らせて、敵陣で働く強い駒を作る。<br>読み筋：▲９三香成 △８八桂成 ▲８二成香 △同玉 ▲７二歩成 △同玉<br>この手の後の評価値 +3506、次善の▲３三龍（+2847）とは大きな差がある。"],["1n1gkg+Pn1/l6r1/1sP1+B2bl/pp3ps1p/9/P3p1RPP/SP1PSP2N/L1K3p1L/1N2GG3 b 3Pp 1","5f","詰めろ","詰めろをかける",3,["3a2a"],0,"相手玉に迫る、次に詰ます狙いの手がある。","<b>▲２一と</b>。次に詰ます手を見せる「詰めろ」。相手は受けに手番を使わされ、攻めが続く。<br>読み筋：▲２一と △７七歩打 ▲同桂 △６二飛 ▲５六飛 △７三桂<br>この手の後の評価値 +2450、次善の▲４一と（+2069）とは大きな差がある。"],["5s1nb/1+B+R3g1l/2sp2np1/1Rlk2p1p/l1pgpp1P1/3G4P/3SPPP1L/p4SG2/5K1N1 b 2Pn3p 1","6e","詰み","5手詰",3,["6f6e"],1,"王手の連続で玉を追い詰められる。","<b>▲６五金</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲６五金 △同玉 ▲６三龍 △６四銀 ▲同馬まで<br>この手の後の評価値 詰み。"],["1n1s3n1/l1gg1s2k/1pP2pp1l/pG1ppn+bBp/2p3l1P/1P3P3/P2P2P1L/5GSR1/2S1K2N1 b RP2p 1","1b","詰み","5手詰",3,["2d1c+"],1,"王手の連続で玉を追い詰められる。","<b>▲１三角成</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲１三角成 △同桂 ▲３二飛打 △１一玉 ▲２二飛成まで<br>この手の後の評価値 詰み。"],["1n1g5/2s1g3l/l2pp+Bnkp/1pp2p3/r1P1P1S2/LPG2Pp2/3P2P1P/2SKN1+r1L/G6N1 b BSP3p 1","5b","詰み","5手詰",3,["B*4a"],1,"王手の連続で玉を追い詰められる。","<b>▲４一角打</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲４一角打 △２二玉 ▲３二角成 △１一玉 ▲２一馬まで<br>この手の後の評価値 詰み。"],["+R3R3b/5k2g/Bp1s1lp2/1g1spp1pp/pn2PP1P1/l1ppG1P2/n2P2L2/2L2K1S1/1NG5N b s4p 1","6f","詰み","5手詰",3,["5a4a+"],1,"王手の連続で玉を追い詰められる。","<b>▲４一飛成</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲４一飛成 △５三玉 ▲５一龍 △５二銀 ▲同龍まで<br>この手の後の評価値 詰み。"],["1ns1k1+N1+R/3g1sr1l/lppppp2p/p1l3p2/6b2/4nP1P1/PPPPPGP1P/LBS2S3/1NG1K3+p b G 1","5a","詰み","5手詰",3,["3a3b"],1,"王手の連続で玉を追い詰められる。","<b>▲３二成桂</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲３二成桂 △３一銀 ▲同龍 △５二玉 ▲４一龍まで<br>この手の後の評価値 詰み。"],["2k2g1n1/l7l/n1gsps1pb/pB3ppr1/3p2P1P/P4PG2/LP1PP1GP1/2R4SL/1N1SK2N1 b 4P 1","3d","詰み","5手詰",3,["7h7c+"],1,"王手の連続で玉を追い詰められる。","<b>▲７三飛成</b>。5手で詰む。王手を続けて逃げ道をふさぐのがポイント。<br>読み筋：▲７三飛成 △７二銀 ▲８二金打 △６一玉 ▲６二龍まで<br>この手の後の評価値 詰み。"]];
+
+NEXT_CH.pages.forEach((p,i)=>{p.diff=1;p.theme=['序盤','序盤','攻め','成り込み','駒得','成り込み'][i];});
+GENP.forEach(([sfen,last,theme,title,diff,ans,mate,hint,ok])=>NEXT_CH.pages.push({t:'次の一手：'+title,sfen,last:last||undefined,theme,diff,
+  quiz:{type:'answer',tag:'次の一手',ans,mate:!!mate,q:'先手番。最善の一手を指そう。'+(last?'直前に後手が指した場所は色が付いている。':''),hint,ok:ok.replace(/^<b>[^<]*<\/b>。/,'')}}));
+// ===== engine bootstrap =====
+const EN=ENGINE();
+const {parseSfen,toSfen,legalMoves,make,unmake,isMate,inCheck,usi,moveJa,clonePos,MATE}=EN;
+let W=null;let rid=0;const pend={};
+function localRun(cmd,a){const p=a.sfen?parseSfen(a.sfen):null;
+  if(cmd==='think'){const t=EN.think(p,a.d,a.t,0);return {u:t.move?usi(t.move):null,score:t.score,depth:t.depth};}
+  if(cmd==='score')return {score:EN.scorePos(p,a.d,a.t)};
+  if(cmd==='cpu'){const t=EN.cpu(p,a.level,a.ply);return {u:t.move?usi(t.move):null,score:t.score};}
+  if(cmd==='threat')return EN.threat(a.sfen,a.sw,a.ply,a.t);
+  if(cmd==='analyze')return EN.analyze(a.sfen,a.t,a.extra,a.k,a.prev);
+  return {};}
+(function(){try{
+  const src=ENGINE.toString()+`
+const E=ENGINE();
+onmessage=function(e){const d=e.data;if(d.cmd==='ping'){postMessage({id:d.id,r:'pong'});return}
+ const a=d.a,p=a.sfen?E.parseSfen(a.sfen):null;let r={};
+ if(d.cmd==='think'){const t=E.think(p,a.d,a.t,0);r={u:t.move?E.usi(t.move):null,score:t.score,depth:t.depth};}
+ else if(d.cmd==='score'){r={score:E.scorePos(p,a.d,a.t)};}
+ else if(d.cmd==='cpu'){const t=E.cpu(p,a.level,a.ply);r={u:t.move?E.usi(t.move):null,score:t.score};}
+ else if(d.cmd==='threat'){r=E.threat(a.sfen,a.sw,a.ply,a.t);}
+ else if(d.cmd==='analyze'){r=E.analyze(a.sfen,a.t,a.extra,a.k,a.prev);}
+ postMessage({id:d.id,r});};`;
+  const w=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  const id=++rid;let ok=false;
+  w.onmessage=e=>{if(e.data.id===id&&e.data.r==='pong'){ok=true;W=w;w.onmessage=ev=>{const f=pend[ev.data.id];delete pend[ev.data.id];if(f)f.res(ev.data.r);};}};
+  w.onerror=()=>{W=null;for(const k in pend){const f=pend[k];delete pend[k];f.res(localRun(f.cmd,f.a));}};
+  w.postMessage({id,cmd:'ping'});setTimeout(()=>{if(!ok){try{w.terminate()}catch(e){}}},2500);
+}catch(e){W=null}})();
+function ask(cmd,a){return new Promise(res=>{if(W){const id=++rid;pend[id]={res,cmd,a};W.postMessage({id,cmd,a});}else setTimeout(()=>res(localRun(cmd,a)),40);});}
+const findMove=(p,u)=>legalMoves(p).find(m=>usi(m)===u);
+
+// ===== sound =====
+// ===== storage: local cache + Supabase sync =====
+const LK='shogilab-v1',PK='shogilab-pending';
+const isProg=k=>k.includes(':');
+function lsGet(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+let MEM=lsGet(LK,{});let SHADOW=JSON.parse(JSON.stringify(MEM));let PENDING=lsGet(PK,{});// key -> value | null(delete)
+const store={get(){return MEM;},
+  set(o){MEM=o;for(const k of new Set([...Object.keys(o),...Object.keys(SHADOW)])){if(!isProg(k))continue;
+      if(!(k in o))PENDING[k]=null;else if(o[k]!==SHADOW[k])PENDING[k]=o[k];}
+    SHADOW=JSON.parse(JSON.stringify(o));lsSet(LK,o);lsSet(PK,PENDING);scheduleFlush();}};
+const SB={client:null,user:null,state:'local',lastSync:null};
+function sbInit(){if(!SUPABASE_URL||!SUPABASE_ANON_KEY||!window.supabase)return;
+  try{SB.client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,detectSessionInUrl:true}});}catch(e){console.warn(e);return;}
+  SB.client.auth.onAuthStateChange((ev,session)=>{const u=session?session.user:null;const changed=(u&&u.id)!==(SB.user&&SB.user.id);SB.user=u;
+    if(u&&changed)syncDown();if(!u){SB.state='local';drawAcct();}});
+  SB.client.auth.getSession().then(({data})=>{if(data.session&&!SB.user){SB.user=data.session.user;syncDown();}else drawAcct();});
+  window.addEventListener('online',()=>scheduleFlush());}
+let flushT=null;
+function scheduleFlush(){if(!SB.user)return;clearTimeout(flushT);SB.state='syncing';drawAcct();flushT=setTimeout(flush,500);}
+async function flush(){if(!SB.user)return;const ks=Object.keys(PENDING);if(!ks.length){SB.state='synced';drawAcct();return;}
+  const ups=ks.filter(k=>PENDING[k]!==null).map(k=>({user_id:SB.user.id,key:k,value:PENDING[k],updated_at:new Date().toISOString()}));
+  const dels=ks.filter(k=>PENDING[k]===null);
+  try{if(ups.length){const {error}=await SB.client.from('progress').upsert(ups,{onConflict:'user_id,key'});if(error)throw error;}
+    if(dels.length){const {error}=await SB.client.from('progress').delete().eq('user_id',SB.user.id).in('key',dels);if(error)throw error;}
+    for(const k of ks)if(PENDING[k]===(ups.find(u=>u.key===k)||{value:null}).value)delete PENDING[k];
+    lsSet(PK,PENDING);SB.state=Object.keys(PENDING).length?'syncing':'synced';SB.lastSync=new Date();}
+  catch(e){console.warn('sync failed',e);SB.state='error';}
+  drawAcct();}
+function better(a,b){// keep earliest real date; a real date beats the plain "1" flag
+  if(a==null)return b;if(b==null)return a;const ad=a>1e12,bd=b>1e12;if(ad&&bd)return Math.min(a,b);return ad?a:bd?b:Math.max(a,b);}
+async function syncDown(){if(!SB.user)return;SB.state='syncing';drawAcct();
+  try{let rows=[],from=0;for(;;){const {data,error}=await SB.client.from('progress').select('key,value').range(from,from+999);if(error)throw error;rows=rows.concat(data);if(data.length<1000)break;from+=1000;}
+    const remote={};for(const r of rows)remote[r.key]=Number(r.value);
+    const merged=Object.assign({},MEM);
+    for(const k of Object.keys(PENDING))if(PENDING[k]===null)delete remote[k];
+    for(const k in remote){merged[k]=better(merged[k],remote[k]);}
+    for(const k in merged){if(!isProg(k))continue;if(merged[k]!==remote[k])PENDING[k]=merged[k];}
+    MEM=merged;SHADOW=JSON.parse(JSON.stringify(MEM));lsSet(LK,MEM);lsSet(PK,PENDING);
+    SB.lastSync=new Date();refreshView();await flush();}
+  catch(e){console.warn('syncDown failed',e);SB.state='error';drawAcct();}}
+function refreshView(){const v=[...document.querySelectorAll('.view')].find(x=>!x.hidden);if(!v)return;
+  if(v.id==='v-index')renderIndex();else if(v.id==='v-list')renderList(L.listCh,true);}
+async function signOut(){await SB.client.auth.signOut();for(const k of Object.keys(MEM))if(isProg(k))delete MEM[k];PENDING={};
+  SHADOW=JSON.parse(JSON.stringify(MEM));lsSet(LK,MEM);lsSet(PK,PENDING);SB.user=null;SB.state='local';closeAcct();refreshView();}
+// ---- account UI ----
+function drawAcct(){const b=document.getElementById('acct');if(!b)return;if(!SB.client){b.hidden=true;return;}b.hidden=false;
+  const st={local:'未ログイン（この端末のみに保存）',syncing:'同期中',synced:'同期済み',error:'同期エラー（あとで再試行）'}[SB.user?SB.state:'local'];
+  b.className='acct '+(SB.user?SB.state:'local');b.title=st;b.setAttribute('aria-label','アカウント：'+st);
+  b.innerHTML=`<span class="dot"></span><span class="al">${SB.user?'同期':'ログイン'}</span>`;
+  const d=document.getElementById('acctBox');if(d&&!d.hidden)fillAcct();}
+function openAcct(){const d=document.getElementById('acctBox');d.hidden=false;fillAcct();}
+function closeAcct(){const d=document.getElementById('acctBox');if(d)d.hidden=true;}
+function fillAcct(){const d=document.getElementById('acctIn');
+  if(SB.user){const n=Object.keys(MEM).filter(isProg).length;
+    d.innerHTML=`<h3>学習記録の同期</h3><p class="lbl">ログイン中：<b>${SB.user.email||'匿名ユーザー'}</b></p>
+      <p>状態：${{syncing:'同期中…',synced:'同期済み',error:'同期エラー。オンラインに戻ると再試行する',local:'—'}[SB.state]}${SB.lastSync?`（最終同期 ${SB.lastSync.toLocaleTimeString()}）`:''}</p>
+      <p class="lbl">保存されている記録：${n}件。別の端末でも同じメールアドレスでログインすれば、続きから学べる。</p>
+      <div class="row"><button class="btn" id="aSync">今すぐ同期</button><button class="btn danger" id="aOut">ログアウト</button><button class="btn" id="aClose">閉じる</button></div>`;
+    $('#aSync').onclick=()=>syncDown();$('#aOut').onclick=signOut;}
+  else{d.innerHTML=`<h3>ログインして記録を同期</h3><p class="lbl">メールアドレスにログイン用のリンクを送る。パスワードは不要。今この端末にある記録は、ログイン後にクラウドへ引き継がれる。</p>
+      <form id="aForm" class="aform"><input type="email" id="aMail" required placeholder="you@example.com" autocomplete="email"><button class="btn pri" type="submit">リンクを送る</button></form>
+      <p class="lbl" id="aMsg"></p><div class="row"><button class="btn" id="aClose">閉じる</button></div>`;
+    $('#aForm').onsubmit=async e=>{e.preventDefault();const email=$('#aMail').value.trim();$('#aMsg').textContent='送信中…';
+      const {error}=await SB.client.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});
+      $('#aMsg').textContent=error?'送信に失敗した：'+error.message:'メールを送った。届いたリンクをこの端末で開くとログインできる。';};}
+  $('#aClose').onclick=closeAcct;}
+let AC=null;let soundOn=store.get().sound!==false;
+function pachi(strong){if(!soundOn)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime;
+  const len=Math.floor(AC.sampleRate*.08),buf=AC.createBuffer(1,len,AC.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,7);
+  const n=AC.createBufferSource();n.buffer=buf;const bp=AC.createBiquadFilter();bp.type='bandpass';bp.frequency.value=strong?1500:2100;bp.Q.value=1.4;
+  const g=AC.createGain();g.gain.value=strong?1.2:.8;n.connect(bp).connect(g).connect(AC.destination);n.start(t);
+  const o=AC.createOscillator(),og=AC.createGain();o.frequency.setValueAtTime(strong?190:260,t);o.frequency.exponentialRampToValueAtTime(80,t+.07);
+  og.gain.setValueAtTime(.35,t);og.gain.exponentialRampToValueAtTime(.001,t+.09);o.connect(og).connect(AC.destination);o.start(t);o.stop(t+.1);}catch(e){}}
+function chime(ok){if(!soundOn)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime;
+  (ok?[660,880,1320]:[300,220]).forEach((f,i)=>{const o=AC.createOscillator(),g=AC.createGain();o.type=ok?'triangle':'sawtooth';o.frequency.value=f;
+    g.gain.setValueAtTime(0,t+i*.09);g.gain.linearRampToValueAtTime(ok?.12:.05,t+i*.09+.01);g.gain.exponentialRampToValueAtTime(.001,t+i*.09+.35);o.connect(g).connect(AC.destination);o.start(t+i*.09);o.stop(t+i*.09+.4);});}catch(e){}}
+const SPK_ON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
+const SPK_OFF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>';
+const sndBtn=document.getElementById('snd');function drawSnd(){sndBtn.innerHTML=soundOn?SPK_ON:SPK_OFF;sndBtn.setAttribute('aria-pressed',soundOn)}drawSnd();
+sndBtn.onclick=()=>{soundOn=!soundOn;const o=store.get();o.sound=soundOn;store.set(o);drawSnd();if(soundOn)pachi();};
+const SVGNS='http://www.w3.org/2000/svg';
+const RM=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ===== pieces =====
+const KJ={1:'歩',2:'香',3:'桂',4:'銀',5:'金',6:'角',7:'飛',8:'玉',9:'と',10:'杏',11:'圭',12:'全',14:'馬',15:'龍'};
+const PROMO_KJ={1:'と',2:'杏',3:'圭',4:'全',6:'馬',7:'龍'};
+const SC={1:.84,2:.87,3:.89,4:.93,5:.93,6:.97,7:.97,8:1,9:.84,10:.87,11:.89,12:.93,14:.97,15:.97};
+const POLY='50,3 85,17 97,107 3,107 15,17';
+const PF="'Yuji Mai','HG行書体','HGP行書体','AR行書体M','Yuji Syuku','Shippori Mincho B1',serif";
+function pieceHTML(t,gote,ch){ch=ch||(t===8&&gote?'王':KJ[t]);const red=t>8;
+  return `<div class="pc${gote?' gote':''}" style="--s:${SC[t]||1}"><svg viewBox="0 0 100 110"><polygon points="${POLY}" fill="url(#pe)" transform="translate(0 2.5)"/><polygon points="${POLY}" fill="url(#pw)" stroke="#8a6228" stroke-width="1.6"/><polygon points="${POLY}" fill="url(#pg)"/><polyline points="5,104 16,19 50,6 84,19" fill="none" stroke="rgba(255,252,235,.75)" stroke-width="2"/><text x="50" y="${t===1||t===9?76:74}" text-anchor="middle" font-family="${PF}" font-size="${t===1||t===9?54:58}" fill="rgba(255,248,225,.55)" dy="1.4">${ch}</text><text x="50" y="${t===1||t===9?76:74}" text-anchor="middle" font-family="${PF}" font-size="${t===1||t===9?54:58}" fill="${red?'#a51d14':'#1c1206'}" stroke="${red?'#a51d14':'#1c1206'}" stroke-width="1.1" stroke-linejoin="round">${ch}</text></svg></div>`;}
+const sqIdx=s=>(s.charCodeAt(1)-97)*9+(9-+s[0]);
+const $=(s,r=document)=>r.querySelector(s);
+const later=(f,ms=40)=>setTimeout(f,ms);
+const base=t=>t>8?t-8:t;
+
+// ===== BoardView =====
+class BoardView{
+  constructor(el){this.el=el;this.flip=false;this.interactive=false;this.sel=null;this.onMove=null;this.pos=null;
+    el.innerHTML=`<div class="bwrap"><div class="hand ht"><span class="who"></span><div class="chips"></div></div>
+    <div class="frame"><div class="bin"><div class="files"></div><div class="ranks"></div><div class="inner"><div class="board"></div></div>
+    <svg class="arrows" viewBox="0 0 9 9.81" preserveAspectRatio="none"><defs>
+    <marker id="ah-${el.id}-a" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1f45d6"/></marker>
+    <marker id="ah-${el.id}-g" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5d6574"/></marker></defs><g></g></svg>
+    <div class="fx"></div><div class="promo" hidden></div></div></div>
+    <div class="hand hb"><span class="who"></span><div class="chips"></div></div></div>`;
+    this.boardEl=$('.board',el);this.binEl=$('.bin',el);this.fxEl=$('.fx',el);this.cells=[];
+    for(let d=0;d<81;d++){const c=document.createElement('div');c.className='cell';c.addEventListener('click',()=>this.clickCell(d));this.boardEl.appendChild(c);this.cells.push(c);}
+    this.svgG=$('svg.arrows g',el);this.promoEl=$('.promo',el);
+    this.promoEl.addEventListener('click',e=>{if(e.target===this.promoEl){this.promoEl.hidden=true;this.sel=null;this.render();}});}
+  set(pos,o={}){let src=null,cap=null;const mv=o.move;
+    if(mv&&!RM&&this.pos){const fd=d=>this.flip?80-d:d;
+      if(mv.from>=0)src=this.cells[fd(mv.from)].querySelector('.pc')?.getBoundingClientRect();
+      else{const ch=this.el.querySelector(`.chip[data-s="${mv.side}"][data-t="${mv.drop}"]`);src=ch?ch.getBoundingClientRect():null;}
+      if(mv.cap){const ce=this.cells[fd(mv.to)].querySelector('.pc');if(ce)cap={rect:ce.getBoundingClientRect(),html:ce.outerHTML};}}
+    this.pos=pos;this.marks=(o.marks||[]).map(sqIdx);this.glow=(o.glow||[]).map(sqIdx);this.arrows=o.arrows||[];this.last=o.last??-1;
+    this.flip=!!o.flip;this.userSide=o.userSide??0;this.threats=o.threats||[];this.interactive=!!o.interactive&&pos.side===this.userSide;
+    this.sel=null;this.legal=this.interactive?legalMoves(pos):[];this.promoEl.hidden=true;this.render();
+    if(mv){this.animate(mv,src,cap);}}
+  sq(d){return this.flip?80-d:d}
+  render(){const p=this.pos,fl=this.flip;
+    $('.files',this.el).innerHTML=(fl?[1,2,3,4,5,6,7,8,9]:[9,8,7,6,5,4,3,2,1]).map(n=>`<span>${n}</span>`).join('');
+    const rk='一二三四五六七八九'.split('');$('.ranks',this.el).innerHTML=(fl?rk.reverse():rk).map(c=>`<span>${c}</span>`).join('');
+    let tg=new Set(),selSq=-1;const movable=new Set(this.legal.filter(m=>m.from>=0).map(m=>m.from));
+    if(this.sel){if(this.sel.from>=0){selSq=this.sel.from;this.legal.filter(m=>m.from===this.sel.from).forEach(m=>tg.add(m.to));}
+      else this.legal.filter(m=>m.from<0&&m.drop===this.sel.drop).forEach(m=>tg.add(m.to));}
+    for(let d=0;d<81;d++){const s=this.sq(d),v=p.b[s],c=this.cells[d];const x=d%9,y=(d/9)|0;
+      let cl='cell';if((x===2||x===5)&&(y===2||y===5))cl+=' star';if(s===this.last)cl+=' last';if(this.marks.includes(s))cl+=' mark';if(this.glow.includes(s))cl+=' glow';
+      if(s===selSq)cl+=' selc';if(tg.has(s))cl+=' tgt'+(v?' occ':'');if(movable.has(s))cl+=' can';c.className=cl;
+      const th=v&&Math.abs(v)===8&&this.threats.includes(s);if(th)c.classList.add('threat');
+      c.innerHTML=(v?pieceHTML(Math.abs(v),(v<0)!==fl,Math.abs(v)===8&&v<0?'王':null):'')+(th?'<span class="ttag">詰めろ</span>':'');}
+    for(const [cls,side] of [['.ht',fl?0:1],['.hb',fl?1:0]]){const h=$(cls,this.el);h.dataset.side=side;
+      $('.who',h).textContent=side===0?'☗先手':'☖後手';
+      const chips=[];for(const t of [7,6,5,4,3,2,1]){const n=p.h[side][t];if(!n)continue;
+        const own=this.interactive&&side===p.side;const sel=this.sel&&this.sel.from<0&&this.sel.drop===t&&own;
+        chips.push(`<button class="chip${sel?' sel':''}" data-t="${t}" data-s="${side}" ${own?'':'tabindex="-1"'} aria-label="${KJ[t]} ${n}枚">${pieceHTML(t,false)}${n>1?`<span class="n">${n}</span>`:''}</button>`);}
+      $('.chips',h).innerHTML=chips.join('')||'<span class="none">持ち駒なし</span>';
+      $('.chips',h).querySelectorAll('.chip').forEach(b=>b.onclick=()=>this.clickHand(+b.dataset.t,+b.dataset.s));}
+    this.drawArrows();}
+  center(s){const d=this.flip?80-s:s;return [d%9+.5,(((d/9)|0)+.5)*1.09];}
+  drawArrows(){let h='';for(const a of this.arrows){const col=a.kind==='played'?'#5d6574':'#1f45d6';const mk=a.kind==='played'?'g':'a';const [tx,ty]=this.center(a.to);
+      if(a.from<0&&a.n){h+=`<circle cx="${tx+.32}" cy="${ty-.38}" r=".22" fill="${col}"/><text x="${tx+.32}" y="${ty-.29}" font-size=".28" font-weight="700" text-anchor="middle" fill="#fff">${a.n}</text>`;}
+      if(a.from<0){h+=`<rect x="${tx-.44}" y="${ty-.48}" width=".88" height=".96" fill="none" stroke="${col}" stroke-width=".1" stroke-dasharray=".16 .1"/><text x="${tx}" y="${ty-.56}" font-size=".34" text-anchor="middle" fill="${col}" font-weight="700" stroke="#fff6dd" stroke-width=".08" paint-order="stroke">${KJ[a.drop]}打</text>`;continue;}
+      const [fx,fy]=this.center(a.from);const dx=tx-fx,dy=ty-fy,L=Math.hypot(dx,dy);const ex=tx-dx/L*.3,ey=ty-dy/L*.3;
+      h+=`<line x1="${fx}" y1="${fy}" x2="${ex}" y2="${ey}" stroke="${col}" stroke-width=".16" stroke-linecap="round" opacity=".88" marker-end="url(#ah-${this.el.id}-${mk})"/>`;
+      if(a.n)h+=`<circle cx="${fx+dx*.45}" cy="${fy+dy*.45}" r=".24" fill="${col}"/><text x="${fx+dx*.45}" y="${fy+dy*.45+.1}" font-size=".3" font-weight="700" text-anchor="middle" fill="#fff">${a.n}</text>`;}
+    this.svgG.innerHTML=h;}
+  cellEl(s){return this.cells[this.flip?80-s:s];}
+  animate(mv,src,cap){const cell=this.cellEl(mv.to),el=cell.querySelector('.pc');
+    const land=()=>{this.ripple(mv.to);pachi(!!mv.cap);
+      if(mv.promo&&el&&!RM){const rot=el.classList.contains('gote')?'rotate(180deg) ':'';el.animate([{transform:rot+'rotateY(90deg) scale(1.15)'},{transform:rot+'rotateY(0) scale(1)'}],{duration:320,easing:'cubic-bezier(.3,1.4,.5,1)'});this.burst(mv.to,10,['#ff5a3c','#ffd27a']);}};
+    if(!el||!src||RM){land();return;}
+    const r=el.getBoundingClientRect();const dx=src.left+src.width/2-(r.left+r.width/2),dy=src.top+src.height/2-(r.top+r.height/2);
+    const rot=el.classList.contains('gote')?' rotate(180deg)':'';const dist=Math.hypot(dx,dy);const dur=Math.min(420,180+dist*.35);
+    el.style.zIndex=20;cell.style.zIndex=20;
+    const an=el.animate([{transform:`translate(${dx}px,${dy}px)${rot} scale(1.12)`,filter:'drop-shadow(6px 14px 8px rgba(40,20,0,.35))'},
+      {offset:.7,transform:`translate(${dx*.08}px,${dy*.08}px)${rot} scale(1.14)`,filter:'drop-shadow(6px 14px 8px rgba(40,20,0,.35))'},
+      {transform:`translate(0,0)${rot} scale(1)`,filter:'drop-shadow(1px 2.5px 1.5px rgba(40,20,0,.45))'}],{duration:dur,easing:'cubic-bezier(.3,.7,.3,1)'});
+    an.onfinish=()=>{el.style.zIndex='';cell.style.zIndex='';land();};
+    if(cap){const g=document.createElement('div');g.className='ghost';g.innerHTML=cap.html;Object.assign(g.style,{left:cap.rect.left+'px',top:cap.rect.top+'px',width:cap.rect.width+'px',height:cap.rect.height+'px'});
+      const inner=g.firstElementChild;inner.style.width='100%';inner.style.height='100%';document.body.appendChild(g);
+      const hand=this.el.querySelector(`.hand[data-side="${mv.side}"]`);const chip=hand&&hand.querySelector(`.chip[data-t="${base(Math.abs(mv.cap))}"]`);const tr=(chip||hand).getBoundingClientRect();
+      const tx=tr.left+tr.width/2-(cap.rect.left+cap.rect.width/2),ty=tr.top+tr.height/2-(cap.rect.top+cap.rect.height/2);
+      const wasG=inner.classList.contains('gote');const toG=(mv.side===0)===this.flip;
+      g.animate([{transform:'translate(0,0) scale(1)',opacity:1},{offset:.25,transform:`translate(${tx*.1}px,${ty*.1-30}px) scale(1.1) rotate(${wasG===toG?0:90}deg)`,opacity:1},{transform:`translate(${tx}px,${ty}px) scale(.8) rotate(${wasG===toG?0:180}deg)`,opacity:.15}],{duration:620,delay:dur*.5,easing:'cubic-bezier(.5,0,.3,1)',fill:'backwards'}).onfinish=()=>g.remove();
+      if(chip&&!RM)chip.animate([{opacity:0},{opacity:0,offset:.9},{opacity:1}],{duration:dur*.5+620});}}
+  ripple(s){if(RM)return;const c=this.cellEl(s);const br=this.binEl.getBoundingClientRect(),cr=c.getBoundingClientRect();
+    const r=document.createElement('div');r.className='ripple';const sz=cr.width*1.1;Object.assign(r.style,{left:(cr.left-br.left+cr.width/2)+'px',top:(cr.top-br.top+cr.height/2)+'px',width:sz+'px',height:sz+'px'});
+    this.fxEl.appendChild(r);setTimeout(()=>r.remove(),600);}
+  burst(s,n=26,cols=['#f2c14e','#e8452f','#ffffff','#2a6fd6']){if(RM)return;const c=this.cellEl(s);const br=this.binEl.getBoundingClientRect(),cr=c.getBoundingClientRect();
+    const cx=cr.left-br.left+cr.width/2,cy=cr.top-br.top+cr.height/2;
+    for(let i=0;i<n;i++){const p=document.createElement('i');p.className='part';const a=Math.random()*Math.PI*2,d=40+Math.random()*110;
+      Object.assign(p.style,{left:cx+'px',top:cy+'px',background:cols[i%cols.length],borderRadius:i%3?'1px':'50%'});this.fxEl.appendChild(p);
+      p.animate([{transform:'translate(-50%,-50%) scale(1)',opacity:1},{transform:`translate(${Math.cos(a)*d}px,${Math.sin(a)*d+30}px) rotate(${Math.random()*540}deg) scale(.4)`,opacity:0}],{duration:700+Math.random()*500,easing:'cubic-bezier(.1,.7,.3,1)'}).onfinish=()=>p.remove();}}
+  stamp(text,kind){const s=document.createElement('div');s.className='stamp'+(kind?' '+kind:'');s.textContent=text;this.fxEl.appendChild(s);
+    if(kind==='mate'||kind==='check'){const v=document.createElement('div');v.className='vign';this.fxEl.appendChild(v);setTimeout(()=>v.remove(),1200);}
+    if(kind==='mate'){this.binEl.classList.remove('shake');void this.binEl.offsetWidth;this.binEl.classList.add('shake');}
+    setTimeout(()=>s.remove(),kind==='mate'?2100:1300);}
+  bigFx(kind,s){if(RM){this.stamp(kind==='best'?'最善手':'悪手',kind==='best'?'ok':'mate');return;}
+    const c=this.cellEl(s);const br=this.binEl.getBoundingClientRect(),cr=c.getBoundingClientRect();const cx=cr.left-br.left+cr.width/2,cy=cr.top-br.top+cr.height/2;
+    const add=(cls,st,ms)=>{const d=document.createElement('div');d.className=cls;Object.assign(d.style,st||{});this.fxEl.appendChild(d);setTimeout(()=>d.remove(),ms);return d;};
+    const pos={'--x':cx+'px','--y':cy+'px'};
+    if(kind==='best'){const f=add('gflash',{},1400);f.style.setProperty('--x',cx+'px');f.style.setProperty('--y',cy+'px');
+      add('rays',{left:cx+'px',top:cy+'px'},1700);add('shock',{left:cx+'px',top:cy+'px'},1000);setTimeout(()=>add('shock',{left:cx+'px',top:cy+'px'},1000),180);
+      this.burst(s,44,['#ffd34d','#fff3b0','#ffb300','#ffffff']);setTimeout(()=>this.burst(s,24,['#ffd34d','#ffffff']),260);
+      const el=c.querySelector('.pc');if(el)el.animate([{transform:'scale(1)'},{transform:'scale(1.3)',filter:'drop-shadow(0 0 12px rgba(255,210,60,1))'},{transform:'scale(1)'}],{duration:700,easing:'cubic-bezier(.3,1.6,.5,1)'});
+      this.stamp('最善手','gold');fanfare();}
+    else{const f=add('bflash',{},1500);f.style.setProperty('--x',cx+'px');f.style.setProperty('--y',cy+'px');
+      this.binEl.classList.remove('shake','desat');void this.binEl.offsetWidth;this.binEl.classList.add('shake','desat');
+      const W=br.width;let paths='';for(let i=0;i<7;i++){let a=Math.random()*Math.PI*2,x=cx,y=cy,d=`M${x} ${y}`,L=0;for(let k=0;k<5;k++){const st=W*(.04+Math.random()*.06);a+=(Math.random()-.5)*.9;x+=Math.cos(a)*st;y+=Math.sin(a)*st;L+=st;d+=`L${x.toFixed(1)} ${y.toFixed(1)}`;}paths+=`<path d="${d}" style="--l:${Math.ceil(L)}"/>`;}
+      const sv=document.createElementNS(SVGNS,'svg');sv.setAttribute('class','crack');sv.innerHTML=paths;this.fxEl.appendChild(sv);setTimeout(()=>sv.remove(),1700);
+      this.stamp('悪手','badst');thud();}}
+  checkFx(){if(!inCheck(this.pos,this.pos.side))return;const delay=RM?0:330;
+    setTimeout(()=>{if(isMate(this.pos))this.stamp('詰み','mate');else this.stamp('王手','check');},delay);}
+  shakePiece(s){const el=this.cellEl(s).querySelector('.pc');if(!el||RM)return;const rot=el.classList.contains('gote')?'rotate(180deg) ':'';
+    el.animate([{transform:rot+'translateX(0)'},{transform:rot+'translateX(-5px) rotate(-6deg)'},{transform:rot+'translateX(5px) rotate(6deg)'},{transform:rot+'translateX(-3px)'},{transform:rot+'translateX(0)'}],{duration:380});}
+  clickCell(d){if(!this.interactive)return;const s=this.sq(d),v=this.pos.b[s];
+    if(this.sel){const ms=this.legal.filter(m=>m.to===s&&(this.sel.from>=0?m.from===this.sel.from:(m.from<0&&m.drop===this.sel.drop)));
+      if(ms.length){this.choose(ms);return;}}
+    const own=v&&((v>0)===(this.pos.side===0));
+    if(own&&this.legal.some(m=>m.from===s)&&!(this.sel&&this.sel.from===s)){this.sel={from:s};pachiSoft();}else this.sel=null;this.render();}
+  clickHand(t,side){if(!this.interactive||side!==this.pos.side)return;
+    this.sel=(this.sel&&this.sel.from<0&&this.sel.drop===t)?null:{from:-1,drop:t};this.render();}
+  choose(ms){if(ms.length===1){this.sel=null;this.fire(ms[0]);return;}
+    const pr=ms.find(m=>m.promo),np=ms.find(m=>!m.promo);const t=pr.pc;
+    this.promoEl.innerHTML=`<button class="p">${pieceHTML(t+8,false)}成る</button><button>${pieceHTML(t,false)}成らない</button>`;
+    this.promoEl.hidden=false;const [b1,b2]=this.promoEl.querySelectorAll('button');
+    b1.onclick=()=>{this.promoEl.hidden=true;this.sel=null;this.fire(pr)};b2.onclick=()=>{this.promoEl.hidden=true;this.sel=null;this.fire(np)};b1.focus();}
+  fire(m){m.zoneOpt=this.legal.filter(x=>x.from===m.from&&x.to===m.to).length>1;this.onMove&&this.onMove(m);}
+}
+function fanfare(){if(!soundOn)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime;
+  [523,659,784,1047,1319].forEach((f,i)=>{const o=AC.createOscillator(),g=AC.createGain();o.type='triangle';o.frequency.value=f;const s=t+i*.07;g.gain.setValueAtTime(0,s);g.gain.linearRampToValueAtTime(.13,s+.01);g.gain.exponentialRampToValueAtTime(.001,s+(i===4?.9:.3));o.connect(g).connect(AC.destination);o.start(s);o.stop(s+1);});}catch(e){}}
+function thud(){if(!soundOn)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime;const o=AC.createOscillator(),g=AC.createGain();o.type='sawtooth';o.frequency.setValueAtTime(140,t);o.frequency.exponentialRampToValueAtTime(40,t+.5);g.gain.setValueAtTime(.18,t);g.gain.exponentialRampToValueAtTime(.001,t+.6);
+  const f=AC.createBiquadFilter();f.type='lowpass';f.frequency.value=500;o.connect(f).connect(g).connect(AC.destination);o.start(t);o.stop(t+.65);}catch(e){}}
+function pachiSoft(){if(!soundOn)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime;const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=900;g.gain.setValueAtTime(.04,t);g.gain.exponentialRampToValueAtTime(.001,t+.05);o.connect(g).connect(AC.destination);o.start(t);o.stop(t+.06);}catch(e){}}
+const mark=(side)=>side===0?'▲':'△';
+function moveText(m,side,prevTo){return mark(side)+moveJa(m,prevTo);}
+function zoneOptOf(p,m){if(m.from<0)return false;return legalMoves(p).filter(x=>x.from===m.from&&x.to===m.to).length>1;}
+function mvInfo(m,side){return {from:m.from,to:m.to,drop:m.drop,cap:m.cap,promo:m.promo,side};}
+
+// ===== Tabs =====
+function showView(id){document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!==id);window.scrollTo(0,0);}
+function selTab(t){document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x.dataset.tab===t));}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{selTab(b.dataset.tab);if(b.dataset.tab==='lesson')renderIndex();else{showView('v-play');renderPlay();}});
+$('#heropcs').innerHTML=[8,7,6,5].map(t=>pieceHTML(t,false)).join('');
+
+// ===== Lessons =====
+const LB=new BoardView($('#lessonBoard'));const L={ch:0,pg:0,stage:0,m3:[],tok:0};
+const pageDone=(o,cid,i)=>!!o[cid+':'+i];
+function pageStatus(o,c,i){const pg=c.pages[i],v=o[c.id+':'+i],d=fmtDate(v);
+  if(pg.quiz)return v?{ok:true,txt:'解答済み'+(d?' '+d:'')}:{ok:false,txt:'未解答'};
+  if(pg.build)return v?{ok:true,txt:'完成'+(d?' '+d:'')}:{ok:false,txt:'未完成'};
+  return v?{ok:true,txt:'既読'}:{ok:false,txt:'未読'};}
+function kindOf(pg){return pg.build?'実習':pg.quiz?(pg.quiz.tag?'次の一手':({answer:'問題',mate1:'1手詰',mate3:'3手詰'}[pg.quiz.type])):'解説';}
+const ACC=new Set();
+function renderIndex(){const o=store.get();showView('v-index');selTab('lesson');
+  $('#chapters').innerHTML=LESSONS.map((c,ci)=>{const n=c.pages.length,d=c.pages.filter((p,i)=>pageDone(o,c.id,i)).length;
+    const qn=c.pages.filter(p=>p.quiz).length,bn=c.pages.filter(p=>p.build).length;const open=ACC.has(ci);
+    let inner;
+    if(n>20){const un=c.pages.map((p,i)=>i).filter(i=>!o[c.id+':'+i]).slice(0,8);
+      inner=`<p class="lbl" style="margin:0 0 6px">全${n}問。未解答の問題から8問を表示。すべての問題は一覧で確認できる。</p><ul class="plist">${un.map(i=>pitem(o,c,ci,i)).join('')||'<li class="lbl">すべて解答済み</li>'}</ul>`;}
+    else inner=`<ul class="plist">${c.pages.map((p,i)=>pitem(o,c,ci,i)).join('')}</ul>`;
+    return `<li class="${d===n?'done':''}${open?' open':''}" data-c="${ci}"><button class="chh" aria-expanded="${open}"><span class="no">${ci+1}</span><span><span class="ti">${c.title}${c.id==='c9'?'<span class="new">200問</span>':''}</span><span class="su">${c.sum}</span></span>
+    <span class="pr">${d}/${n}${qn?`　問題${qn}`:''}${bn?`　実習${bn}`:''}<span class="bar"><i style="width:${d/n*100}%"></i></span></span><span class="chev" aria-hidden="true"></span></button>
+    <div class="accb"><div class="accin">${inner}<div class="row" style="margin:10px 0 4px"><button class="btn pri" data-go="${ci}">${d?'続きから':'はじめる'}</button><button class="btn" data-list="${ci}">この章の一覧</button></div></div></div></li>`}).join('');
+  document.querySelectorAll('#chapters .chh').forEach(b=>b.onclick=()=>{const li=b.parentElement,ci=+li.dataset.c;const op=!li.classList.contains('open');
+    li.classList.toggle('open',op);b.setAttribute('aria-expanded',op);if(op)ACC.add(ci);else ACC.delete(ci);});
+  document.querySelectorAll('#chapters [data-go]').forEach(b=>b.onclick=()=>{const ci=+b.dataset.go,c=LESSONS[ci],o2=store.get();let pi=c.pages.findIndex((p,i)=>!pageDone(o2,c.id,i));openPage(ci,pi<0?0:pi);});
+  document.querySelectorAll('#chapters [data-list]').forEach(b=>b.onclick=()=>renderList(+b.dataset.list));
+  document.querySelectorAll('#chapters [data-pg]').forEach(b=>b.onclick=()=>{const [ci,pi]=b.dataset.pg.split(':').map(Number);openPage(ci,pi);});}
+function pitem(o,c,ci,i){const pg=c.pages[i],st=pageStatus(o,c,i);
+  return `<li><button data-pg="${ci}:${i}"><span class="pk">${kindOf(pg)}</span><span class="pt">${pg.t.replace(/^次の一手：/,'')}${pg.diff?` <span class="star">${'★'.repeat(pg.diff)}</span>`:''}</span><span class="ps${st.ok?' ok':''}">${st.txt}</span></button></li>`;}
+$('#toIndex').onclick=renderIndex;
+function openPage(ci,pi){L.ch=ci;L.pg=pi;showView('v-lesson');renderPage();}
+function markDone(){const o=store.get();const k=LESSONS[L.ch].id+':'+L.pg;const pgx=LESSONS[L.ch].pages[L.pg];const isQ=!!(pgx.quiz||pgx.build);
+  if(isQ){if(!(typeof o[k]==='number'&&o[k]>1e12))o[k]=Date.now();}else if(!o[k])o[k]=1;store.set(o);}
+function fmtDate(v){if(typeof v!=='number'||v<1e12)return '';const d=new Date(v);return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;}
+const LISTCH=new Set(['c9']);
+function miniBoard(sfen,last){const p=parseSfen(sfen);const W=90,H=98,cw=W/9,ch=H/9;let s=`<svg viewBox="-3 -3 96 ${H+6}" aria-hidden="true"><rect x="-3" y="-3" width="96" height="${H+6}" fill="#e2b866"/>`;
+  if(last>=0)s+=`<rect x="${(last%9)*cw}" y="${((last/9)|0)*ch}" width="${cw}" height="${ch}" fill="rgba(255,170,40,.55)"/>`;
+  for(let i=0;i<=9;i++)s+=`<line x1="${i*cw}" y1="0" x2="${i*cw}" y2="${H}" stroke="#3a2608" stroke-width="${i%9?.35:.8}"/><line x1="0" y1="${i*ch}" x2="${W}" y2="${i*ch}" stroke="#3a2608" stroke-width="${i%9?.35:.8}"/>`;
+  for(let i=0;i<81;i++){const v=p.b[i];if(!v)continue;const t=Math.abs(v);const x=(i%9)*cw+cw/2,y=((i/9)|0)*ch+ch/2;const c=t===8&&v<0?'王':KJ[t];
+    s+=`<text x="${x}" y="${y+2.6}" font-size="7.4" text-anchor="middle" font-family="${PF}" fill="${t>8?'#a51d14':'#1c1206'}"${v<0?` transform="rotate(180 ${x} ${y})"`:''}>${c}</text>`;}
+  return s+'</svg>';}
+const LF={theme:'all',st:'all',diff:0,lim:48};
+function renderList(ci,keep){const c=LESSONS[ci],o=store.get();showView('v-list');selTab('lesson');if(L.listCh!==ci||!keep){LF.theme='all';LF.st='all';LF.diff=0;LF.lim=48;}L.listCh=ci;
+  $('#listCrumb').textContent=`第${ci+1}章　${c.title}`;$('#listTitle').textContent=c.title;
+  const solved=c.pages.filter((p,i)=>o[c.id+':'+i]).length;
+  $('#listProg').textContent=`${c.pages.length}${c.pages.some(p=>p.quiz)?'問':'ページ'}中 ${solved} 完了。カードを選ぶとそのページを開く。`;
+  let idx=c.pages.map((p,i)=>i);const big=c.pages.length>20;
+  if(big){const themes=[...new Set(c.pages.map(p=>p.theme).filter(Boolean))];
+    idx=idx.filter(i=>{const p=c.pages[i],v=o[c.id+':'+i];return (LF.theme==='all'||p.theme===LF.theme)&&(LF.st==='all'||(LF.st==='done')===!!v)&&(!LF.diff||p.diff===LF.diff);});
+    $('#listFilter').innerHTML=`<div class="fl"><span class="lbl">テーマ</span>${['all'].concat(themes).map(t=>`<button class="chip2${LF.theme===t?' on':''}" data-th="${t}">${t==='all'?'すべて':t}</button>`).join('')}</div>
+      <div class="fl"><span class="lbl">難易度</span>${[0,1,2,3].map(d=>`<button class="chip2${LF.diff===d?' on':''}" data-df="${d}">${d?'★'.repeat(d):'すべて'}</button>`).join('')}<span class="lbl" style="margin-left:10px">状態</span>${[['all','すべて'],['todo','未解答'],['done','解答済み']].map(([k,t])=>`<button class="chip2${LF.st===k?' on':''}" data-st="${k}">${t}</button>`).join('')}<span class="lbl" style="margin-left:auto">${idx.length}問</span></div>`;
+    $('#listFilter').querySelectorAll('[data-th]').forEach(b=>b.onclick=()=>{LF.theme=b.dataset.th;LF.lim=48;renderList(ci,true)});
+    $('#listFilter').querySelectorAll('[data-df]').forEach(b=>b.onclick=()=>{LF.diff=+b.dataset.df;LF.lim=48;renderList(ci,true)});
+    $('#listFilter').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{LF.st=b.dataset.st;LF.lim=48;renderList(ci,true)});}
+  else $('#listFilter').innerHTML='';
+  const shown=idx.slice(0,LF.lim);
+  $('#nlist').innerHTML=shown.map(i=>{const pg=c.pages[i];const st=pageStatus(o,c,i);const sf=pg.sfen||(pg.build&&pg.build.sfen)||INIT;
+    const desc=pg.quiz?(pg.quiz.q.startsWith('先手番。最善の一手')?`テーマ：${pg.theme}`:pg.quiz.q):pg.build?(pg.body||'').replace(/<[^>]+>/g,''):(pg.body||'').replace(/<[^>]+>/g,'');
+    return `<button class="ncard${st.ok?' solved':''}" data-i="${i}">${miniBoard(sf,pg.last?sqIdx(pg.last):-1)}<span><span class="nno">${big?'第'+(i+1)+'問':(i+1)+'. '+kindOf(pg)}${pg.diff?` <span class="star">${'★'.repeat(pg.diff)}</span>`:''}</span><span class="nt">${pg.t.replace(/^次の一手：/,'')}</span><span class="nq">${desc}</span><span class="ns">${st.txt}</span></span></button>`;}).join('')||'<p class="lbl">条件に合う問題はない。</p>';
+  $('#listMore').innerHTML=idx.length>LF.lim?`<button class="btn" id="moreBtn">さらに表示（残り${idx.length-LF.lim}）</button>`:'';
+  if($('#moreBtn'))$('#moreBtn').onclick=()=>{LF.lim+=48;renderList(ci,true);};
+  document.querySelectorAll('#nlist .ncard').forEach(b=>b.onclick=()=>openPage(ci,+b.dataset.i));
+  if(!keep)drawReset(false);}
+function drawReset(confirm){const r=$('#listReset');
+  if(!confirm){r.innerHTML=`<button class="btn danger" id="rs1">この章の記録をリセット</button>`;$('#rs1').onclick=()=>drawReset(true);return;}
+  r.innerHTML=`<div class="rst"><span>この章の記録（解答・既読）をすべて消す？</span><button class="btn danger pri" id="rsY">消す</button><button class="btn" id="rsN">やめる</button></div>`;
+  $('#rsN').onclick=()=>drawReset(false);
+  $('#rsY').onclick=()=>{const c=LESSONS[L.listCh];const o=store.get();c.pages.forEach((p,i)=>delete o[c.id+':'+i]);store.set(o);renderList(L.listCh);};}
+$('#listBack').onclick=()=>renderIndex();
+function navHTML(){const c=LESSONS[L.ch];const last=L.pg===c.pages.length-1;const nextLabel=last?(L.ch<LESSONS.length-1?'次の章へ':'目次へ'):'次へ';
+  return `<div class="nav"><button class="btn" id="pPrev" ${L.ch===0&&L.pg===0?'disabled':''}>前へ</button><button class="btn pri" id="pNext">${nextLabel}</button></div>`;}
+function bindNav(){const c=LESSONS[L.ch];const last=L.pg===c.pages.length-1;
+  $('#pPrev').onclick=()=>{if(L.pg>0)openPage(L.ch,L.pg-1);else if(L.ch>0)openPage(L.ch-1,LESSONS[L.ch-1].pages.length-1);};
+  $('#pNext').onclick=()=>{if(!last)openPage(L.ch,L.pg+1);else if(L.ch<LESSONS.length-1)openPage(L.ch+1,0);else renderIndex();};}
+function stepsHTML(){const c=LESSONS[L.ch],o=store.get();if(c.pages.length>30){const sd=c.pages.filter((p,i)=>o[c.id+':'+i]).length;return `<div class="stepn"><span>第${L.pg+1}問 / ${c.pages.length}${c.pages[L.pg].diff?'　<span class="star">'+'★'.repeat(c.pages[L.pg].diff)+'</span>':''}</span><span>解答済み ${sd}</span></div><div class="steps"><i class="ok" style="flex:none;width:${sd/c.pages.length*100}%"></i><i></i></div>`;}return `<div class="steps">${c.pages.map((p,i)=>`<i class="${i===L.pg?'cur':pageDone(o,c.id,i)?'ok':''}"></i>`).join('')}</div>`;}
+function renderPage(){const c=LESSONS[L.ch],pg=c.pages[L.pg];L.tok++;
+  $('#crumbTxt').innerHTML=`第${L.ch+1}章　${c.title}`+`　<button id="toList">この章の一覧</button>`;
+  $('#toList').onclick=()=>renderList(L.ch,true);
+  if(pg.build){startBuild();return;}
+  L.pos=parseSfen(pg.sfen);L.stage=0;L.prev=pg.last?sqIdx(pg.last):-1;L.seq='';L.tried=[];LC.on=false;L.ana=null;
+  const arrows=(pg.arrows||[]).map(a=>({from:sqIdx(a[0]),to:sqIdx(a[1])}));
+  LB.set(L.pos,{marks:pg.marks,arrows,interactive:!!pg.quiz,userSide:0,last:L.prev});LB.onMove=lessonMove;
+  if(!pg.quiz)markDone();
+  if(pg.quiz&&pg.quiz.type==='mate3')L.m3=mate3First(L.pos);
+  let q='';if(pg.quiz){const tl=pg.quiz.tag||{answer:'問題',mate1:'1手詰',mate3:'3手詰'}[pg.quiz.type];
+    const sv=store.get()[c.id+':'+L.pg];const sd=fmtDate(sv);
+    q=`<div class="quiz"><span class="qtag${pg.quiz.tag?' nx':''}">${tl}</span>${sv?`<span class="lbl" style="margin-left:8px;color:var(--g-best);font-weight:700">解答済み${sd?' '+sd:''}</span>`:''}<p>${pg.quiz.q}</p><p class="lbl">先手（▲）の番。盤上の駒か持ち駒をタップして指す。</p><div id="fb"></div><div id="ana"></div><div id="cont"></div>
+    <div class="row"><button class="btn" id="qHint">ヒント</button><button class="btn" id="qAns">答えを見る</button><button class="btn" id="qReset">最初から</button></div></div>`;}
+  $('#lessonPanel').innerHTML=`${stepsHTML()}<h2>${pg.t}</h2>${pg.body||''}${q}${navHTML()}`;bindNav();
+  if(pg.quiz){$('#qHint').onclick=()=>fb('','ヒント',pg.quiz.hint);$('#qAns').onclick=showAnswer;$('#qReset').onclick=renderPage;}}
+function fb(cls,h,txt){$('#fb').innerHTML=`<div class="fb ${cls}"><b class="h">${h}</b>${txt}</div>`;}
+function mate3First(p){const out=[];for(const m of legalMoves(p)){make(p,m);if(!inCheck(p,p.side)){unmake(p,m);continue}
+  const rs=legalMoves(p);let ok=rs.length>0;for(const r of rs){make(p,r);const has=legalMoves(p).some(m2=>{make(p,m2);const x=isMate(p);unmake(p,m2);return x});unmake(p,r);if(!has){ok=false;break}}
+  unmake(p,m);if(ok)out.push(usi(m));}return out;}
+function mateMoves(p){return legalMoves(p).filter(m=>{make(p,m);const x=isMate(p);unmake(p,m);return x});}
+function defense(p){let best=null,bn=1e9;for(const r of legalMoves(p)){make(p,r);const n=mateMoves(p).length;unmake(p,r);if(n<bn){bn=n;best=r}}return best;}
+function usiOfLast(){return L.lastU;}
+function applyLesson(m,interactive,extra={}){L.lastU=usi(m);m.zoneOpt=m.zoneOpt??zoneOptOf(L.pos,m);const side=L.pos.side;const txt=moveText(m,side,L.prev);make(L.pos,m);L.prev=m.to;
+  LB.set(L.pos,Object.assign({last:m.to,interactive,userSide:0,move:mvInfo(m,side)},extra));LB.checkFx();return txt;}
+function success(txt){const pg=LESSONS[L.ch].pages[L.pg];const to=L.prev;markDone();chime(true);
+  setTimeout(()=>{LB.burst(to);if(!inCheck(L.pos,L.pos.side))LB.stamp('正解','ok');},350);
+  const dd=fmtDate(store.get()[LESSONS[L.ch].id+':'+L.pg]);
+  fb('ok','正解',`<p><b>${txt}</b></p>${pg.quiz.ok}${dd?`<p class="lbl" style="margin:8px 0 0">解答日 ${dd}</p>`:''}<div class="row"><button class="btn" id="fbList">この章の一覧へ</button></div>`);
+  const fl=$('#fbList');if(fl)fl.onclick=()=>renderList(L.ch,true);$('#lessonPanel .steps i.cur')?.classList.add('ok');
+  if(pg.quiz.tag)showAnalysis(usiOfLast());}
+function fail(m,msg){const snap=toSfen(L.pos),prev=L.prev,tok=L.tok;const u=usi(m);const t=applyLesson(m,false);chime(false);
+  setTimeout(()=>LB.shakePiece(m.to),380);fb('ng','もう一度',`${t} ${msg}<div class="lbl" id="failEv" style="margin-top:6px"></div>`);
+  const q=LESSONS[L.ch].pages[L.pg].quiz;if(q&&q.tag){if(!L.tried.includes(u))L.tried.push(u);$('#failEv').innerHTML='<span class="dots"><i></i><i></i><i></i></span> この手の評価値を計算中';
+    ask('score',{sfen:toSfen(L.pos),d:7,t:700}).then(r=>{if(tok!==L.tok)return;const el=$('#failEv');if(el)el.innerHTML=`この手を指した後の評価値 <b>${fmtEval(r.score)}</b>（${evalLabel(r.score)}）。正解すると、最善手との比較と読み筋が見られる。`;});}
+  later(()=>{if(tok!==L.tok)return;L.pos=parseSfen(snap);L.prev=prev;LB.set(L.pos,{last:prev,interactive:true,userSide:0});},1150);}
+function lessonMove(m){const q=LESSONS[L.ch].pages[L.pg].quiz;const u=usi(m);
+  if(q.type==='answer'&&q.mate&&!q.ans.includes(u)){const p=L.pos;make(p,m);const mt=isMate(p);unmake(p,m);if(mt)q.ans.push(u);}
+  if(q.type==='answer'){if(q.ans.includes(u)){const t=applyLesson(m,false);success(t);}else fail(m,(q.ng&&q.ng[u])||'は正解ではない。');return;}
+  if(q.type==='mate1'||(q.type==='mate3'&&L.stage===1)){const p=L.pos;make(p,m);const ok=isMate(p),chk=inCheck(p,p.side);unmake(p,m);
+    if(ok){const t=applyLesson(m,false);success(L.seq+t);}else fail(m,chk?'は王手だが、玉に逃げられる。':'は王手になっていない。');return;}
+  if(q.type==='mate3'&&L.stage===0){if(!L.m3.includes(u)){const p=L.pos;make(p,m);const chk=inCheck(p,p.side);unmake(p,m);
+      fail(m,chk?'では3手で詰まない。別の王手を考えよう。':'は王手になっていない。詰将棋は王手の連続で詰ませる。');return;}
+    const t1=applyLesson(m,false);fb('','いい王手',`${t1}　相手の応手を待とう…`);const tok=L.tok;
+    later(()=>{if(tok!==L.tok)return;const r=defense(L.pos);const t2=applyLesson(r,true);L.stage=1;L.seq=t1+' '+t2+' ';fb('','とどめ',`${t1} ${t2}　あと1手で詰ませよう。`);},900);}}
+function showAnswer(){const q=LESSONS[L.ch].pages[L.pg].quiz;renderPage();const p=L.pos;const tok=L.tok;
+  if(q.type==='answer'){const m=findMove(p,q.ans[0]);const t=applyLesson(m,false);fb('','解答',`<p><b>${t}</b></p>${q.ok}`);if(q.tag)showAnalysis(q.ans[0]);return;}
+  if(q.type==='mate1'){const m=mateMoves(p)[0];const t=applyLesson(m,false);fb('','解答',`<p><b>${t}</b></p>${q.ok}`);return;}
+  const m=findMove(p,L.m3[0]);const t1=applyLesson(m,false);
+  later(()=>{if(tok!==L.tok)return;const r=defense(L.pos);const t2=applyLesson(r,false);later(()=>{if(tok!==L.tok)return;const m2=mateMoves(L.pos)[0];const t3=applyLesson(m2,false);
+    fb('','解答',`<p><b>${t1} ${t2} ${t3}</b></p>${q.ok}`);},800);},800);}
+// ---- build mode ----
+function guideOn(){return store.get().guide!==false;}
+function startBuild(){const pg=LESSONS[L.ch].pages[L.pg],b=pg.build;L.pos=parseSfen(b.sfen);L.bi=0;L.prev=-1;L.done=[];L.fin=false;
+  drawBuildBoard();drawBuildPanel(false);LB.onMove=buildMove;}
+function drawBuildBoard(extra={}){const b=LESSONS[L.ch].pages[L.pg].build;let arrows=[];
+  if(!L.fin&&(guideOn()||L.forceGuide)){const m=findMove(L.pos,b.steps[L.bi][0]);if(m)arrows=[{from:m.from,to:m.to,drop:m.drop}];}
+  LB.set(L.pos,Object.assign({last:L.prev,interactive:!L.fin&&L.pos.side===0,userSide:0,arrows,glow:L.fin?b.marks:[]},extra));}
+function drawBuildPanel(anim){const pg=LESSONS[L.ch].pages[L.pg],b=pg.build;const n=b.steps.length;
+  let cur='';if(!L.fin){const s=b.steps[L.bi];cur=`<div class="bstep${anim?' anim':''}"><span class="k">手順 ${L.bi+1} / ${n}</span><span class="ins">${s[1]}</span><span class="why">${s[2]}</span></div>`;}
+  else cur=`<div id="fb"><div class="fb ok"><b class="h">完成</b>${b.done}</div></div>`;
+  const list=b.steps.map((s,i)=>`<li class="${i<L.bi||L.fin?'d':''}${i===L.bi&&!L.fin?' c':''}">${i<L.done.length?L.done[i]:s[1]}</li>`).join('');
+  $('#lessonPanel').innerHTML=`${stepsHTML()}<h2>${pg.t}</h2>${pg.body||''}${cur}<div id="bmsg"></div>
+    <label class="tog"><input type="checkbox" id="gChk" ${guideOn()?'checked':''}>ガイド矢印を表示</label>
+    <ul class="blist">${list}</ul><div class="row"><button class="btn" id="bReset">最初から</button></div>${navHTML()}`;
+  bindNav();$('#bReset').onclick=startBuild;
+  $('#gChk').onchange=e=>{const o=store.get();o.guide=e.target.checked;store.set(o);L.forceGuide=false;if(!L.busy)drawBuildBoard();};}
+function buildMove(m){const b=LESSONS[L.ch].pages[L.pg].build;const exp=b.steps[L.bi][0];
+  if(usi(m)!==exp){const snap=toSfen(L.pos),prev=L.prev,tok=L.tok;applyLesson(m,false);chime(false);setTimeout(()=>LB.shakePiece(m.to),380);
+    $('#bmsg').innerHTML=`<div class="fb ng"><b class="h">今はその手ではない</b>「${b.steps[L.bi][1]}」を指そう。盤上の矢印が目安。</div>`;L.forceGuide=true;
+    later(()=>{if(tok!==L.tok)return;L.pos=parseSfen(snap);L.prev=prev;drawBuildBoard();},1100);return;}
+  L.forceGuide=false;const t=applyLesson(m,false);L.done.push(t);L.bi++;$('#bmsg').innerHTML='';
+  if(L.bi>=b.steps.length){L.fin=true;markDone();chime(true);const tok=L.tok;
+    setTimeout(()=>{if(tok!==L.tok)return;drawBuildBoard();drawBuildPanel(false);b.marks.forEach((s,i)=>setTimeout(()=>LB.burst(sqIdx(s),14),i*140));LB.stamp('完成','ok');},500);return;}
+  L.busy=true;drawBuildPanel(false);const tok=L.tok;
+  later(()=>{if(tok!==L.tok)return;const g=findMove(L.pos,b.gote[L.bi-1]);applyLesson(g,false);L.busy=false;
+    later(()=>{if(tok!==L.tok)return;drawBuildBoard();drawBuildPanel(true);},560);},650);}
+
+// ===== next-move analysis & continue =====
+function showAnalysis(played){const tok=L.tok;const el=$('#ana');if(!el)return;
+  el.innerHTML=`<div class="ana"><div class="anh"><b>評価値と読み筋</b><span class="lbl"><span class="dots"><i></i><i></i><i></i></span> 解析中</span></div></div>`;
+  const pg=LESSONS[L.ch].pages[L.pg];
+  ask('analyze',{sfen:pg.sfen,t:1800,extra:[played].concat(L.tried),k:4,prev:pg.last?sqIdx(pg.last):-1}).then(r=>{if(tok!==L.tok)return;L.ana=r;
+    const best=r.cands[0].score;const pc=r.cands.find(c=>c.u===played);const pe=pc?pc.score:best;
+    const rows=r.cands.slice(0,6).concat(r.cands.slice(6).filter(c=>L.tried.includes(c.u))).map((c,i)=>{const tags=[];if(pg.quiz.ans.includes(c.u))tags.push('<span class="atag ok">正解</span>');if(L.tried.includes(c.u))tags.push('<span class="atag tr">試した手</span>');
+      const diff=Math.round(c.score-best);
+      return `<button class="arow${c.u===played?' on':''}" data-u="${c.u}"><span class="ar1"><span class="am">${c.pv[0]}</span>${tags.join('')}</span><span class="ae" style="color:${diff>-40?'var(--g-best)':diff>-300?'var(--g-dub)':'var(--g-bad)'}">${fmtEval(c.score)}${i&&diff?`<small>${diff}</small>`:''}</span><span class="apv">${c.pv.slice(1).join(' ')||'—'}</span></button>`;}).join('');
+    el.innerHTML=`<div class="ana"><div class="anh"><b>評価値と読み筋</b><span class="lbl">先手から見た値・深さ${r.depth}</span></div>
+      <div class="anbar"><span>指した後の評価値 <b>${fmtEval(pe)}</b>　${evalLabel(pe)}</span><div class="evalbar"><i style="width:${winPct(pe)*100}%"></i></div></div>
+      <div class="arows">${rows}</div><p class="lbl" style="margin:8px 0 0">行を選ぶと、その手から始まる読み筋（最大4手）を番号付きの矢印で盤上に示す（青が先手、灰色が後手）。読み筋は「お互いが最善を尽くした場合」の予想手順。</p>
+      <div class="row"><button class="btn pri" id="contBtn">この局面から続けて指す（CPU：上級）</button></div></div>`;
+    el.querySelectorAll('.arow').forEach(b=>b.onclick=()=>{el.querySelectorAll('.arow').forEach(x=>x.classList.toggle('on',x===b));showPV(b.dataset.u);});
+    $('#contBtn').onclick=startCont;});}
+function showPV(u){if(LC.on)return;const pg=LESSONS[L.ch].pages[L.pg];const c=L.ana.cands.find(x=>x.u===u);if(!c)return;
+  const p=parseSfen(pg.sfen),q=parseSfen(pg.sfen);const arrows=[];
+  c.pvU.slice(0,4).forEach((mu,i)=>{const m=findMove(q,mu);if(!m)return;arrows.push({from:m.from,to:m.to,drop:m.drop,kind:q.side===0?'best':'played',n:i+1});make(q,m);});
+  LB.set(p,{last:pg.last?sqIdx(pg.last):-1,arrows,userSide:0});}
+const LC={on:false,hist:[],busy:false};
+function startCont(){const pg=LESSONS[L.ch].pages[L.pg];const u=pg.quiz.ans.includes(L.lastU)?L.lastU:pg.quiz.ans[0];
+  L.pos=parseSfen(pg.sfen);const m0=findMove(L.pos,u);make(L.pos,m0);L.prev=m0.to;L.lastU=u;
+  LC.on=true;LC.hist=[];LC.pre=null;LC.end=null;LC.hint=false;const pc=L.ana&&L.ana.cands.find(c=>c.u===L.lastU);LC.base=pc?pc.score:0;
+  LB.onMove=contMove;$('#ana').querySelector('#contBtn')?.closest('.row')?.remove();contCpu();setTimeout(()=>$('#cont')?.scrollIntoView({behavior:RM?'auto':'smooth',block:'nearest'}),50);}
+function contSet(mv){const ar=LC.hint&&LC.pre&&LC.pre.move?[{from:LC.pre.move.from,to:LC.pre.move.to,drop:LC.pre.move.drop,kind:'best'}]:[];
+  LB.set(L.pos,{last:L.prev,move:mv,arrows:ar,interactive:LC.on&&!LC.busy&&!LC.end,userSide:0});}
+function contEnd(){const n=legalMoves(L.pos).length;if(n)return false;LC.end=L.pos.side===0?'lose':'win';LC.busy=false;
+  LC.status=LC.end==='win'?'詰みまで指し切った。あなたの勝ち':'詰まされた。1手戻して別の手を試そう';drawCont();contSet();if(LC.end==='win'){chime(true);LB.burst(L.prev,30);}return true;}
+function contCpu(){const tok=L.tok;LC.busy=true;LC.status='CPUが考え中';drawCont();contSet();const t0=Date.now();
+  ask('cpu',{sfen:toSfen(L.pos),level:4,ply:99}).then(r=>{if(tok!==L.tok||!LC.on)return;
+    setTimeout(()=>{if(tok!==L.tok||!LC.on)return;const m=findMove(L.pos,r.u);if(!m){contEnd();return;}
+      m.zoneOpt=zoneOptOf(L.pos,m);const before=toSfen(L.pos),pb=L.prev;const ja=moveText(m,1,L.prev);make(L.pos,m);L.prev=m.to;
+      LC.hist.push({sfen:before,prevBefore:pb,m,ja,user:false,evalS:-r.score});contSet(mvInfo(m,1));LB.checkFx();if(contEnd())return;contUser();},Math.max(0,400-(Date.now()-t0)));});}
+function contUser(){const tok=L.tok;LC.busy=true;LC.status='局面を解析中';drawCont();
+  ask('think',{sfen:toSfen(L.pos),d:12,t:1200}).then(r=>{if(tok!==L.tok||!LC.on)return;LC.pre={move:r.u?findMove(L.pos,r.u):null,score:r.score,depth:r.depth};
+    LC.busy=false;LC.status='あなたの番';drawCont();contSet();});}
+function contMove(m){if(LC.busy||LC.end)return;const tok=L.tok;const pre=LC.pre;const before=toSfen(L.pos),pb=L.prev;
+  const ja=moveText(m,0,L.prev);make(L.pos,m);L.prev=m.to;const h={sfen:before,prevBefore:pb,m,ja,user:true,pre};LC.hist.push(h);
+  LC.busy=true;LC.hint=false;LC.status='指し手を評価中';contSet(mvInfo(m,0));LB.checkFx();drawCont();
+  ask('score',{sfen:toSfen(L.pos),d:Math.max(1,(pre&&pre.depth||2)-1),t:1100}).then(r=>{if(tok!==L.tok||!LC.on)return;const us=r.score;
+    let loss=pre&&pre.move?pre.score-us:0;if(pre&&pre.move&&usi(pre.move)===usi(m))loss=0;if(us>=MATE-500)loss=0;loss=Math.max(0,loss);
+    h.loss=loss;h.grade=gradeOf(loss);h.evalS=us;h.fresh=true;
+    if(pre&&pre.move&&usi(pre.move)!==usi(m)){const bp=parseSfen(before);pre.move.zoneOpt=zoneOptOf(bp,pre.move);h.bestJa=moveText(pre.move,0,pb);h.best=pre.move;}
+    if(h.grade==='best'||h.grade==='bad')LB.bigFx(h.grade,m.to);if(contEnd())return;setTimeout(contCpu,h.grade==='best'||h.grade==='bad'?900:0);});}
+function contUndo(){if(LC.busy)return;let i=-1;for(let k=LC.hist.length-1;k>=0;k--)if(LC.hist[k].user){i=k;break}if(i<0)return;
+  const h=LC.hist[i];L.pos=parseSfen(h.sfen);L.prev=h.prevBefore;LC.hist=LC.hist.slice(0,i);LC.end=null;contSet();contUser();}
+function drawCont(){const el=$('#cont');if(!el)return;const last=LC.hist.length?LC.hist[LC.hist.length-1]:null;const ev=last&&last.evalS!=null?last.evalS:LC.base;
+  const lh=[...LC.hist].reverse().find(h=>h.user&&h.grade);const fresh=lh&&lh.fresh;if(lh)lh.fresh=false;
+  const first=!el.firstElementChild;el.innerHTML=`<div class="ana${first?'':' still'}"><div class="anh"><b>続きを指す</b><span class="lbl">CPU：上級</span></div>
+    <div class="anbar"><span>評価値 <b>${fmtEval(ev)}</b>　${evalLabel(ev)}</span><div class="evalbar"><i style="width:${winPct(ev)*100}%"></i></div></div>
+    ${gradeCard(lh,fresh)}
+    <div class="status">${LC.busy?'<span class="dots"><i></i><i></i><i></i></span>':''}${LC.status||''}</div>
+    <div class="row"><button class="btn" id="cHint" ${LC.busy||LC.end||!LC.pre?'disabled':''}>${LC.hint?'ヒントを消す':'ヒント（最善手）'}</button><button class="btn" id="cUndo" ${LC.busy||!LC.hist.some(h=>h.user)?'disabled':''}>1手戻す</button><button class="btn" id="cReset">問題の局面に戻る</button></div>
+    <div class="kifu">${LC.hist.map((h,i)=>`<div class="krow"><span class="k">${i+1}</span><span>${h.ja}</span>${h.user&&h.grade?`<span class="tag" style="background:${GR[h.grade][1]}">${GR[h.grade][0]}</span>`:'<span></span>'}</div>`).join('')}</div></div>`;
+  $('#cHint').onclick=()=>{LC.hint=!LC.hint;contSet();drawCont();};$('#cUndo').onclick=contUndo;$('#cReset').onclick=renderPage;
+  const k=el.querySelector('.kifu');if(k)k.scrollTop=k.scrollHeight;}
+
+sbInit();drawAcct();document.getElementById('acct').onclick=openAcct;document.getElementById('acctBox').addEventListener('click',e=>{if(e.target.id==='acctBox')closeAcct();});
+// ===== Play =====
+const PB=new BoardView($('#playBoard'));
+const INITS='lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1';
+const GR={best:['最善手','var(--g-best)'],good:['好手','var(--g-good)'],norm:['普通','var(--g-norm)'],dub:['疑問手','var(--g-dub)'],bad:['悪手','var(--g-bad)']};
+const LVN={1:['入門','ときどき大きなミスをする'],2:['初級','2〜3手先を読む'],3:['中級','4手程度を読み、タダの駒は見逃さない'],4:['上級','7手前後を読む。序盤の定跡も少し使う'],5:['超上級','最大12手・1手6秒ほどかけて深く読む']};
+const G={th:{mine:null,theirs:null},state:'setup',side:0,sidePref:0,level:3,pos:null,hist:[],pre:null,busy:false,status:'',view:null,showBest:false,result:null,tok:0};
+const gradeOf=l=>l<=0?'best':l<=40?'good':l<=120?'norm':l<=300?'dub':'bad';
+const toS=(v,side)=>side===0?v:-v;
+const isMateSc=v=>Math.abs(v)>=MATE-500;
+function evalLabel(v){if(isMateSc(v))return (v>0?'先手':'後手')+'に詰みあり';const a=Math.abs(v),s=v>0?'先手':'後手';
+  return a<150?'互角':a<500?s+'やや有利':a<1200?s+'有利':a<2500?s+'優勢':s+'勝勢';}
+const fmtEval=v=>isMateSc(v)?(v>0?'+詰':'−詰'):(v>0?'+':v<0?'−':'±')+Math.abs(Math.round(v));
+const winPct=v=>1/(1+Math.exp(-Math.max(-4000,Math.min(4000,v))/600));
+function startGame(){G.tok++;G.side=G.sidePref===2?(Math.random()<.5?0:1):G.sidePref;G.pos=parseSfen(INITS);G.hist=[];G.pre=null;G.view=null;G.result=null;G.state='play';G.showBest=false;G.th={mine:null,theirs:null};
+  renderPlay();if(G.side===1)cpuTurn();else userTurn();}
+function lastTo(){return G.hist.length?G.hist[G.hist.length-1].m.to:-1}
+function userTurn(){const tok=G.tok;G.busy=true;G.status='局面を解析中';G.pre=null;G.showBest=false;renderPlay();const sf=toSfen(G.pos);
+  Promise.all([ask('think',{sfen:sf,d:12,t:1300}),ask('threat',{sfen:sf,sw:true,ply:5,t:450}),ask('threat',{sfen:sf,sw:false,ply:5,t:450})]).then(([r,tm,tt])=>{if(tok!==G.tok)return;
+    G.pre={move:r.u?findMove(G.pos,r.u):null,score:r.score,depth:r.depth};
+    const chk=inCheck(G.pos,G.pos.side);const was=G.th.mine;
+    G.th={mine:chk?'check':(tm.u?'th':null),theirs:tt.u?'win':null};
+    const last=G.hist[G.hist.length-1];if(last&&!last.user&&G.th.mine==='th')last.th=true;
+    G.busy=false;G.status=G.th.mine==='th'?'あなたの玉に詰めろ。受けるか、先に詰ませよう':(G.th.mine==='check'?'王手されている':'あなたの番');renderPlay();
+    if(G.th.mine==='th'&&was!=='th')PB.stamp('詰めろ','warn');});}
+function onUserMove(m){if(G.busy||G.state!=='play')return;const tok=G.tok;const pre=G.pre;const before=toSfen(G.pos);
+  const mover=G.pos.side;const ja=moveText(m,mover,lastTo());make(G.pos,m);
+  const h={sfen:before,m,ja,side:mover,user:true,pre};G.hist.push(h);G.busy=true;G.status='指し手を評価中';renderPlay(mvInfo(m,mover));PB.checkFx();
+  const d=Math.max(1,(pre&&pre.depth?pre.depth:2)-1);
+  ask('score',{sfen:toSfen(G.pos),d,t:1200}).then(r=>{if(tok!==G.tok)return;const us=r.score;
+    let loss=pre&&pre.move?pre.score-us:0;if(pre&&pre.move&&usi(pre.move)===usi(m))loss=0;if(us>=MATE-500)loss=0;loss=Math.max(0,loss);
+    h.loss=loss;h.grade=gradeOf(loss);h.evalS=toS(us,mover);h.missedMate=pre&&pre.score>=MATE-500&&us<MATE-500;
+    if(pre&&pre.move&&usi(pre.move)!==usi(m)){const bp=parseSfen(before);pre.move.zoneOpt=zoneOptOf(bp,pre.move);h.bestJa=moveText(pre.move,mover,G.hist.length>1?G.hist[G.hist.length-2].m.to:-1);h.best=pre.move;}
+    h.fresh=true;const big=h.grade==='best'||h.grade==='bad';if(big)PB.bigFx(h.grade,m.to);if(checkEnd())return;
+    ask('threat',{sfen:toSfen(G.pos),sw:true,ply:5,t:450}).then(t=>{if(tok!==G.tok)return;h.th=!!t.u;G.th={mine:null,theirs:t.u?'th':null};
+      if(t.u){setTimeout(()=>PB.stamp('詰めろ','ok'),big?1100:0);chime(true);}setTimeout(cpuTurn,big?900:0);});});}
+function checkEnd(){const n=legalMoves(G.pos).length;
+  if(n===0){const winner=G.pos.side^1;G.result={winner,why:'詰み'};G.state='end';G.busy=false;G.status='';G.showBest=false;renderPlay();
+    setTimeout(()=>{if(winner===G.side){chime(true);for(let i=0;i<4;i++)setTimeout(()=>PB.burst(Math.floor(Math.random()*81),20),i*220);}},900);return true;}
+  if(G.hist.length>=300){G.result={winner:-1,why:'手数制限'};G.state='end';G.busy=false;renderPlay();return true;}
+  return false;}
+function cpuTurn(){const tok=G.tok;G.busy=true;G.status=`CPU（${LVN[G.level][0]}）が考え中`;renderPlay();const t0=Date.now();
+  ask('cpu',{sfen:toSfen(G.pos),level:G.level,ply:G.hist.length}).then(r=>{if(tok!==G.tok)return;
+    const go=()=>{if(tok!==G.tok)return;const m=findMove(G.pos,r.u);if(!m){checkEnd();return;}
+      m.zoneOpt=zoneOptOf(G.pos,m);const mover=G.pos.side;const ja=moveText(m,mover,lastTo());const before=toSfen(G.pos);make(G.pos,m);
+      G.hist.push({sfen:before,m,ja,side:mover,user:false,evalS:toS(r.score,mover)});
+      renderPlay(mvInfo(m,mover));PB.checkFx();if(checkEnd())return;userTurn();};
+    const wait=Math.max(0,450-(Date.now()-t0));setTimeout(go,wait);});}
+function undo(){if(G.busy)return;let i=-1;for(let k=G.hist.length-1;k>=0;k--)if(G.hist[k].user){i=k;break}if(i<0)return;G.tok++;
+  G.pos=parseSfen(G.hist[i].sfen);G.hist=G.hist.slice(0,i);G.th={mine:null,theirs:null};G.state='play';G.result=null;G.view=null;userTurn();}
+function resign(){if(G.state!=='play'||G.busy)return;G.tok++;G.result={winner:G.side^1,why:'投了'};G.state='end';G.showBest=false;renderPlay();}
+function boardState(mv){
+  const thr=[];if(G.view===null&&G.state==='play'){const ks=s=>{for(let i=0;i<81;i++)if(G.pos.b[i]===(s===0?8:-8))return i;return -1};
+    if(G.th.mine==='th')thr.push(ks(G.side));if(G.th.theirs)thr.push(ks(G.side^1));}
+  const sig=[toSfen(G.pos),G.view,G.showBest,G.state==='play'&&!G.busy,G.side,G.hist.length,thr.join(',')].join('|');
+  if(!mv&&sig===G.bsig)return;G.bsig=sig;
+  if(G.view!==null){const h=G.hist[G.view];const p=parseSfen(h.sfen);const ar=[];
+    if(h.best)ar.push({from:h.best.from,to:h.best.to,drop:h.best.drop,kind:'best'});ar.push({from:h.m.from,to:h.m.to,drop:h.m.drop,kind:'played'});
+    PB.set(p,{flip:G.side===1,arrows:ar,last:G.view>0?G.hist[G.view-1].m.to:-1});return;}
+  const ar=[];if(G.showBest&&G.pre&&G.pre.move){const m=G.pre.move;ar.push({from:m.from,to:m.to,drop:m.drop,kind:'best'});}
+  PB.set(G.pos,{flip:G.side===1,last:lastTo(),move:mv,arrows:ar,threats:thr,interactive:G.state==='play'&&!G.busy,userSide:G.side});}
+PB.onMove=onUserMove;
+function gradeCard(h,anim){if(!h)return `<div class="grade empty">あなたの指し手の評価がここに出る。</div>`;
+  const [gl,gc]=GR[h.grade];let d=`評価値 ${fmtEval(h.evalS)}（${evalLabel(h.evalS)}）`;
+  let extra='';if(h.missedMate)extra='<div class="gd">詰みを逃した</div>';
+  if(h.best)extra+=`<div class="gd">最善手は <b>${h.bestJa}</b>（差 ${h.loss>9000?'大':'−'+Math.round(h.loss)}）</div>`;
+  return `<div class="grade ${h.grade}${anim?' anim':''}" style="border-left-color:${gc}"><span class="gw" style="color:${gc}">${gl}</span><span class="gm">${h.ja}</span><span class="gd">${d}</span>${extra?`<span></span><div>${extra}</div>`:''}</div>`;}
+function evalGraph(){const n0=G.hist.length;const vals=[0].concat(G.hist.map(h=>h.evalS??0));
+  const W=360,H=168,pl=40,pr=8,pt=10,pb=22,iw=W-pl-pr,ih=H-pt-pb;const n=Math.max(30,n0);
+  const X=i=>pl+i/n*iw,Y=v=>pt+(1-winPct(v))*ih,mid=pt+ih/2;
+  const pts=vals.map((v,i)=>[X(i),Y(v)]);const line=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join('');
+  const area=line+`L${pts[pts.length-1][0].toFixed(1)} ${mid}L${pl} ${mid}Z`;
+  let s=`<svg class="egraph" viewBox="0 0 ${W} ${H}" role="img" aria-label="形勢グラフ"><defs><clipPath id="gtop"><rect x="${pl}" y="${pt}" width="${iw}" height="${ih/2}"/></clipPath><clipPath id="gbot"><rect x="${pl}" y="${mid}" width="${iw}" height="${ih/2}"/></clipPath></defs>`;
+  s+=`<rect x="${pl}" y="${pt}" width="${iw}" height="${ih}" fill="var(--paper)"/>`;
+  for(const q of [.9,.7,.3,.1]){const y=pt+(1-q)*ih;s+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width=".6"/>`;}
+  s+=`<text x="${pl-4}" y="${pt+8}" text-anchor="end">先手</text><text x="${pl-4}" y="${mid+3}" text-anchor="end">互角</text><text x="${pl-4}" y="${pt+ih}" text-anchor="end">後手</text>`;
+  for(let k=10;k<=n;k+=10)s+=`<line x1="${X(k)}" x2="${X(k)}" y1="${pt}" y2="${pt+ih}" stroke="var(--line)" stroke-width=".5"/><text x="${X(k)}" y="${H-8}" text-anchor="middle">${k}</text>`;
+  if(n0){s+=`<path d="${area}" fill="#d6a656" opacity=".55" clip-path="url(#gtop)"/><path d="${area}" fill="#2b2f38" opacity=".38" clip-path="url(#gbot)"/>`;
+    s+=`<line x1="${pl}" x2="${W-pr}" y1="${mid}" y2="${mid}" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="3 3"/>`;
+    s+=`<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linejoin="round"/>`;
+    G.hist.forEach((h,i)=>{const [x,y]=pts[i+1];
+      if(h.user&&(h.grade==='bad'||h.grade==='dub'))s+=`<circle cx="${x}" cy="${y}" r="3.2" fill="${GR[h.grade][1]}" stroke="#fff" stroke-width="1"/>`;
+      if(h.th)s+=`<path d="M${x} ${y-9}l-3.5-6h7z" fill="#c0261a"/>`;});
+    const cur=G.view!==null?G.view+1:n0;const [cx,cy]=pts[cur];
+    s+=`<line x1="${cx}" x2="${cx}" y1="${pt}" y2="${pt+ih}" stroke="var(--ink)" stroke-width=".8" opacity=".5"/><circle cx="${cx}" cy="${cy}" r="4" fill="var(--accent)" stroke="#fff" stroke-width="1.5"><animate attributeName="r" values="4;6;4" dur="1.6s" repeatCount="indefinite"/></circle>`;
+    for(let i=1;i<=n0;i++){const w=iw/n;s+=`<rect class="hit" data-i="${i-1}" x="${X(i)-w/2}" y="${pt}" width="${w}" height="${ih}"/>`;}}
+  else s+=`<text x="${pl+iw/2}" y="${mid+3}" text-anchor="middle">指し始めるとここに形勢が描かれる</text>`;
+  s+='</svg>';
+  const ev=n0?(G.view!==null?vals[G.view+1]:vals[n0]):0;const wp=Math.round(winPct(ev)*100);
+  return `<div class="gwrap"><div class="gh"><b>形勢グラフ</b><span>推定勝率　先手 ${wp}%／後手 ${100-wp}%</span></div>${s}<div class="gtip" id="gtip">あなたは${G.side===0?'先手（上側）':'後手（下側）'}。●は疑問手・悪手、▼は詰めろがかかった手。点を押すとその局面を確認できる。</div></div>`;}
+function graphSvg(){const pts=G.hist.map((h,i)=>[i+1,Math.max(-2000,Math.min(2000,h.evalS??0))]);if(pts.length<2)return '';
+  const n=Math.max(40,pts.length),W=300,H=70;const X=i=>i/n*W,Y=v=>H/2-v/2000*(H/2-4);
+  const d=pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join('');
+  const area=d+`L${X(pts[pts.length-1][0]).toFixed(1)} ${H/2}L${X(pts[0][0]).toFixed(1)} ${H/2}Z`;
+  const dots=G.hist.map((h,i)=>h.user&&(h.grade==='bad'||h.grade==='dub')?`<rect x="${X(i+1)-2}" y="${Y(pts[i][1])-2}" width="4" height="4" fill="${GR[h.grade][1]}"/>`:'').join('');
+  return `<svg class="graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${area}" fill="var(--accent-soft)"/><line x1="0" y1="${H/2}" x2="${W}" y2="${H/2}" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 3"/><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>${dots}</svg>`;}
+function renderPlay(mv){const P=$('#playPanel');
+  if(G.state==='setup'){if(!G.pos)G.pos=parseSfen(INITS);PB.set(G.pos,{flip:G.sidePref===1});
+    P.innerHTML=`<h2>CPUと対局</h2><p>指すたびに、その手を最善手と比べて採点する。悪手のあとは「最善手」を盤上で確認できる。</p>
+    <div class="lbl">あなたの手番</div><div class="seg" id="sSide">${['先手','後手','ランダム'].map((t,i)=>`<button data-v="${i}" aria-pressed="${G.sidePref===i}">${t}</button>`).join('')}</div>
+    <div class="lbl">CPUの強さ</div><div class="seg" id="sLv">${[1,2,3,4,5].map(i=>`<button data-v="${i}" aria-pressed="${G.level===i}">${LVN[i][0]}</button>`).join('')}</div>
+    <p class="lvdesc">${LVN[G.level][1]}</p>
+    <button class="btn pri" id="sStart" style="width:100%;padding:11px">対局開始</button>
+    <p class="note">評価とCPUはブラウザ内で動く自作エンジン（深さ8〜12程度の探索）。プロ用ソフトほどの精度はないので、大きな失敗に気づくための目安として使ってほしい。</p>`;
+    P.querySelectorAll('#sSide button').forEach(b=>b.onclick=()=>{G.sidePref=+b.dataset.v;renderPlay()});
+    P.querySelectorAll('#sLv button').forEach(b=>b.onclick=()=>{G.level=+b.dataset.v;renderPlay()});
+    $('#sStart').onclick=startGame;return;}
+  boardState(mv);
+  const lastEval=G.hist.length?(G.hist[G.hist.length-1].evalS??0):0;
+  const showH=G.view!==null?G.hist[G.view]:[...G.hist].reverse().find(h=>h.user&&h.grade);
+  const fresh=showH&&showH.fresh&&G.view===null;if(showH)showH.fresh=false;
+  const viewing=G.view!==null;const ev=viewing?(G.hist[G.view].evalS??0):lastEval;
+  let html=`<div class="evaltxt"><span>☗先手</span><span><b>${fmtEval(ev)}</b>　${evalLabel(ev)}</span><span>☖後手</span></div><div class="evalbar"><i style="width:${winPct(ev)*100}%"></i></div>`;
+  if(viewing){const h=G.hist[G.view];html+=h.user?gradeCard(h,false):`<div class="grade empty">CPUの手：${h.ja}</div>`;
+    html+=`<p class="lbl">${G.view+1}手目の局面。灰色の矢印が実際の手${h.best?'、青が最善手':''}。</p>
+    <div class="row"><button class="btn" id="vPrev" ${G.view===0?'disabled':''}>前の手</button><button class="btn" id="vNext" ${G.view>=G.hist.length-1?'disabled':''}>次の手</button><button class="btn pri" id="vBack">現局面に戻る</button></div>`;}
+  else{if(G.state==='play'){const m=G.th.mine,t=G.th.theirs;
+      html+=`<div class="kst"><div>あなたの玉<b class="${m==='check'?'chk':m==='th'?'th':''}">${m==='check'?'王手':m==='th'?'詰めろ':'安全'}</b></div><div>相手の玉<b class="${t==='win'?'win':t==='th'?'th':''}">${t==='win'?'詰みあり':t==='th'?'詰めろ':'安全'}</b></div></div>`;}
+    html+=gradeCard(showH,fresh);
+    if(G.state==='end'){const r=G.result;const you=r.winner===G.side;
+      const um=G.hist.filter(h=>h.user&&h.grade);const cnt=k=>um.filter(h=>h.grade===k).length;const match=um.length?Math.round(cnt('best')/um.length*100):0;
+      html+=`<div class="result">${r.winner<0?'引き分け':(you?'あなたの勝ち':'あなたの負け')}</div><p class="lbl">${G.hist.length}手目　${r.why}${r.winner>=0?'で'+(r.winner===0?'先手':'後手')+'の勝ち':''}（CPU：${LVN[G.level][0]}）</p>
+      <div class="summary">${['best','good','norm','dub','bad'].map(k=>`<div><b style="color:${GR[k][1]}">${cnt(k)}</b><span>${GR[k][0]}</span></div>`).join('')}</div>
+      <p class="lbl">最善手一致率 ${match}%。棋譜の手をタップすると、その局面と最善手を確認できる。</p>
+      <div class="row"><button class="btn pri" id="gNew">新しく対局</button><button class="btn" id="gUndo">待ったして続ける</button></div>`;}
+    else{html+=`<div class="status">${G.busy?'<span class="dots"><i></i><i></i><i></i></span>':''}${G.status}</div>
+      <div class="row"><button class="btn" id="gHint" ${G.busy||!G.pre?'disabled':''}>${G.showBest?'ヒントを消す':'ヒント（最善手）'}</button><button class="btn" id="gUndo" ${G.busy||!G.hist.some(h=>h.user)?'disabled':''}>待った</button><button class="btn" id="gRes" ${G.busy?'disabled':''}>投了</button></div>`;}}
+  html+=`<div class="kifu" id="kifu">${G.hist.map((h,i)=>`<button data-i="${i}" class="${G.view===i?'on':''}"><span class="k">${i+1}</span><span>${h.ja}${h.th?'<span class="tagth">詰めろ</span>':''}</span>${h.user&&h.grade?`<span class="tag" style="background:${GR[h.grade][1]}">${GR[h.grade][0]}</span>`:'<span></span>'}</button>`).join('')||'<p class="lbl" style="margin:8px 0">まだ指し手はない。</p>'}</div>${evalGraph()}
+  ${G.state==='end'||viewing?'':`<div class="row"><button class="btn" id="gQuit">対局をやめる</button></div>`}`;
+  P.innerHTML=html;
+  const k=$('#kifu');if(k&&!viewing)k.scrollTop=k.scrollHeight;
+  P.querySelectorAll('#kifu button').forEach(b=>b.onclick=()=>{if(G.busy)return;G.view=+b.dataset.i;renderPlay();});
+  P.querySelectorAll('.egraph .hit').forEach(r=>{const i=+r.dataset.i,h=G.hist[i];
+    r.onmouseenter=()=>{$('#gtip').textContent=`${i+1}手目 ${h.ja}　${fmtEval(h.evalS??0)}（${evalLabel(h.evalS??0)}）${h.grade?'　'+GR[h.grade][0]:''}${h.th?'　詰めろ':''}`;};
+    r.onclick=()=>{if(G.busy)return;G.view=i;renderPlay();};});
+  const on=(id,f)=>{const e=$('#'+id);if(e)e.onclick=f};
+  on('vPrev',()=>{G.view--;renderPlay()});on('vNext',()=>{G.view++;renderPlay()});on('vBack',()=>{G.view=null;renderPlay()});
+  on('gHint',()=>{G.showBest=!G.showBest;renderPlay()});on('gUndo',undo);on('gRes',resign);
+  on('gNew',()=>{G.state='setup';G.pos=null;renderPlay()});on('gQuit',()=>{G.tok++;G.busy=false;G.state='setup';G.pos=null;renderPlay()});}
+renderIndex();
+</script></body></html>
